@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { config } from './config.js';
 import { pool } from './db.js';
 import { migrate } from './migrate.js';
-import { loadUser, requireAuth } from './lib/access.js';
+import { loadUser, requireAuth, partnerGuard } from './lib/access.js';
 import { HttpError } from './lib/util.js';
 import authRoutes from './routes/auth.js';
 import adminRoutes from './routes/admin.js';
@@ -17,6 +17,7 @@ import ncRoutes from './routes/nc.js';
 import statsRoutes from './routes/stats.js';
 import importRoutes from './routes/imports.js';
 import royaltyRoutes from './routes/royalty.js';
+import depositRoutes from './routes/deposits.js';
 import siteRoyaltyRoutes from './routes/siteRoyalty.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -64,12 +65,14 @@ app.get('/api/health', async (_req, res) => {
 });
 app.use('/api/auth', authRoutes);
 app.use('/api', requireAuth);
+app.use('/api', partnerGuard);
 app.use('/api', adminRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/nc', ncRoutes);
 app.use('/api/stats', statsRoutes);
 app.use('/api/imports', importRoutes);
 app.use('/api/canoni', siteRoyaltyRoutes);
+app.use('/api/deposits', depositRoutes);
 app.use('/api/royalty', royaltyRoutes);
 app.use('/api', (_req, _res, next) => next(new HttpError(404, 'Endpoint inesistente')));
 

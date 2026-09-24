@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { eur, itDate } from '../lib/util.js';
 
 const fullDT = (d) => new Date(d).toLocaleString('it-IT', { timeZone: 'Europe/Rome', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-import { BANKNOTES } from '../lib/cash.js';
+import { BANKNOTES, COINS, dkey } from '../lib/cash.js';
 
 export const ASSETS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'assets');
 export const C = { teal: '#1C505E', blue: '#71B1BD', jet: '#01212C', silk: '#FFFAE3', mauve: '#DEC0F1', grey: '#5B6B70', line: '#C9D9DC' };
@@ -83,7 +83,7 @@ export async function buildSlipPdf({ report, company, site, number, revision, pr
 
     // Dati identificativi
     const info = [
-      ['Azienda', `${company.name} (${company.code})`],
+      ['Azienda', company.name],
       ['Sede', `${site.name} (${site.code})${site.address ? `, ${site.address}` : ''}${site.city ? `, ${site.city}` : ''}`],
       ['Data incasso', itDate(report.report_date)],
       ['N. distinta', `${number}  ·  rev. ${revision}`],
@@ -134,10 +134,14 @@ export async function buildSlipPdf({ report, company, site, number, revision, pr
     L.title('Conteggio contante in cassa');
     L.row(['Taglio', 'Pezzi', 'Importo'], { bold: true, fill: C.blue, color: '#FFFFFF', size: 8 });
     for (const d of BANKNOTES) {
-      const n = Number(report.denominations[d] || 0);
-      L.row([`Banconote da ${eur(d).replace(',00', '')}`, n ? String(n) : '–', n ? eur(n * d) : '–']);
+      const n = Number(report.denominations[dkey(d)] ?? report.denominations[d] ?? 0);
+      L.row([`Banconote da ${eur(d).replace(',00', '')}`, n ? String(n) : '–', n ? eur(n * d) : '–'], { size: 8, h: 12.5 });
     }
-    L.row(['Monete (totale)', '', eur(report.coins_total)]);
+    for (const d of COINS) {
+      const n = Number(report.denominations[dkey(d)] ?? report.denominations[d] ?? 0);
+      if (n) L.row([`Monete da ${eur(d)}`, String(n), eur(n * d)], { size: 8, h: 12.5 });
+    }
+    L.row(['Totale monete', '', eur(report.coins_total)], { size: 8, h: 12.5 });
     L.row(['Totale contante contato', '', eur(report.cash_counted)], { bold: true });
     L.row(['Fondo cassa trattenuto', '', `– ${eur(report.cash_float)}`]);
     L.row(['VERSATO IN BUSTA', '', eur(report.cash_to_deposit)], { bold: true, fill: C.silk, size: 10.5, h: 20 });

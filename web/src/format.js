@@ -35,10 +35,16 @@ export const STATUS = {
   DRAFT: { label: 'Bozza', tone: 'grey' },
   CLOSED: { label: 'Busta registrata', tone: 'blue' },
   PROCESSED: { label: 'Distinta elaborata', tone: 'teal' },
-  PICKED_UP: { label: 'Ritirata', tone: 'mauve' },
-  DEPOSITED: { label: 'Versata', tone: 'green' },
+  PICKED_UP: { label: 'Operazione logistica', tone: 'mauve' },
+  VERIFIED: { label: 'Verificato, in cassaforte', tone: 'green' },
+  DEPOSITED: { label: 'Versato', tone: 'grey' },
 };
-export const ROLE = { SUPERADMIN: 'Super amministratore', ADMIN: 'Amministratore', OPERATOR: 'Operatore' };
+export const DEPOSIT_STATUS = { PREPARATO: { label: 'Preparato', tone: 'blue' }, RITIRATO: { label: 'Ritirato dal portavalori', tone: 'mauve' }, ACCREDITATO: { label: 'Accreditato', tone: 'green' } };
+export const ROLE = { SUPERADMIN: 'Super amministratore', ADMIN: 'Amministratore', OPERATOR: 'Operatore', PARTNER: 'Partner' };
+export const BANKNOTES = [500, 200, 100, 50, 20, 10, 5];
+export const COINS = [2, 1, 0.5, 0.2, 0.1, 0.05, 0.02, 0.01];
+export const dkey = (d) => String(Number(d));
+export const currentMonth = () => today().slice(0, 7);
 export const CIRCUITS = { BANCOMAT: 'Bancomat', CARTA_CREDITO: 'Carta di credito', BUONI_PASTO: 'Buoni pasto', APP: 'App di pagamento', ALTRO: 'Altro' };
 export const NC_STATUS = { APERTA: { label: 'Aperta', tone: 'red' }, RISPOSTA: { label: 'Risposta ricevuta', tone: 'blue' }, CHIUSA: { label: 'Chiusa', tone: 'green' } };
 export const SEVERITY = { BASSA: 'grey', MEDIA: 'mauve', ALTA: 'red' };

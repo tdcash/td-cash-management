@@ -72,7 +72,7 @@ test('flusso completo', async (t) => {
       email: 'info@bioscienze.it', iban: 'IT60X0542811101000000123456', sepa_mandate_id: 'TD-BIOSC-001', sepa_mandate_date: '2026-09-01' });
     assert.equal(r.status, 201, JSON.stringify(r.data));
     ctx.company = r.data.id;
-    r = await S.post('/api/sites', { company_id: ctx.company, code: 'BSL01', name: 'Borgo San Lorenzo centro', city: 'Borgo San Lorenzo', cash_float: 150, pos_terminals: 'T100,T101' });
+    r = await S.post('/api/sites', { company_id: ctx.company, code: 'BSL01', name: 'Borgo San Lorenzo centro', city: 'Borgo San Lorenzo', province: 'fi', cash_float: 150, pos_terminals: 'T100,T101' });
     assert.equal(r.status, 201); ctx.site = r.data.id;
     r = await S.post('/api/sites', { company_id: ctx.company, code: 'BSL02', name: 'Punto prelievo Vicchio', cash_float: 100 });
     ctx.site2 = r.data.id;
@@ -102,12 +102,12 @@ test('flusso completo', async (t) => {
     assert.equal(r.status, 201); ctx.rep = r.data.id;
     assert.equal((await O2.get(`/api/reports/${ctx.rep}`)).status, 403, "un operatore di un'altra sede non vede il rendiconto");
     r = await O.put(`/api/reports/${ctx.rep}`, {
-      denominations: { 50: 4, 20: 10, 10: 5, 5: 6 }, coins_total: 12.4, expected_total: 1052.4, notes: 'Giornata regolare',
+      denominations: { 50: 4, 20: 10, 10: 5, 5: 6, 2: 5, 1: 2, '0.2': 2 }, expected_total: 1052.4, notes: 'Giornata regolare',
       receipts: [{ circuit: 'BANCOMAT', amount: 120, terminal_id: 'T100', receipt_number: '0012' }, { circuit: 'CARTA_CREDITO', amount: 250.5, terminal_id: 'T100', receipt_number: '0013' }],
       transfers: [{ cro: 'CRO123456789', amount: 300, payer: 'Azienda Alfa' }],
     });
     assert.equal(r.status, 200, JSON.stringify(r.data));
-    // contante: 200+200+50+30+12.4 = 492.4, fondo 150 -> 342.4
+    // contante: 200+200+50+30 + monete 10+2+0.4 = 492.4, fondo 150 -> 342.4
     assert.equal(r.data.cash_counted, 492.4);
     assert.equal(r.data.cash_to_deposit, 342.4);
     assert.equal(r.data.pos_total, 370.5);
@@ -139,12 +139,18 @@ test('flusso completo', async (t) => {
     r = await O.post(`/api/reports/${ctx.rep}/process`);
     assert.equal(r.data.slip_revision, 2);
   });
-  await t.test('ritiro logistica e accredito con differenza -> NC automatica', async () => {
-    let r = await O.post(`/api/reports/${ctx.rep}/pickup`, { operator_name: 'Giorgio Neri (Mondialpol)' });
-    assert.equal(r.data.status, 'PICKED_UP');
-    assert.equal((await O.post(`/api/reports/${ctx.rep}/deposit`, { amount: 342.4, date: '2026-09-23' })).status, 403);
-    r = await A.post(`/api/reports/${ctx.rep}/deposit`, { amount: 332.4, date: '2026-09-23' });
-    assert.equal(r.data.status, 'DEPOSITED');
+  await t.test('operazione logistica (admin) e riconteggio con differenza -> NC automatica', async () => {
+    assert.equal((await O.post(`/api/reports/${ctx.rep}/pickup`, { operator_name: 'Giorgio Neri (Mondialpol)' })).status, 403, 'operatore non registra la logistica');
+    let r = await A.post(`/api/reports/${ctx.rep}/pickup`, { operator_name: 'Giorgio Neri (Mondialpol)' });
+    assert.equal(r.status, 200, JSON.stringify(r.data)); assert.equal(r.data.status, 'PICKED_UP');
+    // annulla ultimo passaggio e rifai
+    r = await A.post(`/api/reports/${ctx.rep}/undo`, { reason: 'Nome operatore errato' });
+    assert.equal(r.data.status, 'PROCESSED');
+    r = await A.post(`/api/reports/${ctx.rep}/pickup`, { operator_name: 'Giorgio Neri (Mondialpol)' });
+    r = await A.post(`/api/reports/${ctx.rep}/verify`, { amount: 332.4, note: 'manca una banconota da 10' });
+    assert.equal(r.status, 200, JSON.stringify(r.data));
+    assert.equal(r.data.status, 'VERIFIED');
+    assert.equal(r.data.verified_difference, -10);
     assert.equal(r.data.nonconformities.length, 1);
     ctx.nc = r.data.nonconformities[0].id;
   });
@@ -219,15 +225,15 @@ test('flusso completo', async (t) => {
     // sede BSL01: fondo 200. Agosto: rendiconto 10/08 con contanti 2000-200=1800 e POS 60000 -> totale 61800
     let r = await A.put(`/api/sites/${ctx.site}`, { host_name: 'Farmacia Comunale 3', royalty_fixed_monthly: 300, royalty_pct: 2.5, royalty_base: 'TOTALE', royalty_vat_rate: 22 });
     assert.equal(r.status, 200, JSON.stringify(r.data));
-    r = await O.get(`/api/canoni/sites/${ctx.site}?period=2026-08`);
+    assert.equal((await O.get(`/api/canoni/sites/${ctx.site}?period=2026-08`)).status, 403, 'operatore non vede le royalty di sede');
+    r = await A.get(`/api/canoni/sites/${ctx.site}?period=2026-08`);
     assert.equal(r.status, 200, JSON.stringify(r.data));
     // variabile 2.5% di 61800 = 1545; imponibile 1845; iva 405.9; totale 2250.9
     assert.equal(r.data.base, 61800);
     assert.equal(r.data.variable, 1545);
     assert.equal(r.data.taxable, 1845);
     assert.equal(r.data.total, 2250.9);
-    r = await O2.get(`/api/canoni/sites/${ctx.site}?period=2026-08`);
-    assert.equal(r.status, 403, 'operatore di altra sede non vede il canone');
+
     r = await A.get('/api/canoni/summary?period=2026-08');
     assert.equal(r.data.totals.total, 2250.9);
     const pdf = await A.raw(`/api/canoni/sites/${ctx.site}/pdf?period=2026-08`);
@@ -246,8 +252,97 @@ test('flusso completo', async (t) => {
     assert.ok(buf.length > 5000);
     (await import('node:fs')).writeFileSync('/tmp/custodia_test.pdf', buf);
   });
+  await t.test('cassaforte e versamento al portavalori (azienda)', async () => {
+    // secondo rendiconto verificato sulla sede 2
+    let r = await O2.post('/api/reports', { site_id: ctx.site2, report_date: '2026-09-20' });
+    const id2 = r.data.id;
+    await O2.put(`/api/reports/${id2}`, { denominations: { 50: 6 } }); // 300 - fondo 100 = 200
+    await O2.post(`/api/reports/${id2}/envelope`, { code: 'MP00055555', confirm: 'MP00055555' });
+    await O2.post(`/api/reports/${id2}/process`);
+    await A.post(`/api/reports/${id2}/pickup`, { operator_name: 'Giorgio Neri' });
+    await A.post(`/api/reports/${id2}/verify`, { amount: 200 });
+    r = await A.get(`/api/deposits/safe?company_id=${ctx.company}`);
+    assert.equal(r.status, 200, JSON.stringify(r.data));
+    assert.equal(r.data.reports.length, 2);
+    assert.equal(r.data.total, 532.4);
+    // versamento parziale: solo il secondo rendiconto, busta con importo non coincidente -> errore
+    r = await A.post('/api/deposits', { company_id: ctx.company, report_ids: [id2], deposit_date: '2026-09-24', envelopes: [{ code: 'MPV0001', amount: 150 }] });
+    assert.equal(r.status, 400);
+    r = await A.post('/api/deposits', { company_id: ctx.company, report_ids: [id2], deposit_date: '2026-09-24', envelopes: [{ code: 'MPV0001', amount: 200 }] });
+    assert.equal(r.status, 201, JSON.stringify(r.data));
+    ctx.dep = r.data.id;
+    assert.match(r.data.number, /^BIOSC-V2026-0001$/);
+    assert.equal((await A.get(`/api/reports/${id2}`)).data.status, 'DEPOSITED');
+    r = await A.get(`/api/deposits/safe?company_id=${ctx.company}`);
+    assert.equal(r.data.total, 332.4, 'in cassaforte resta il primo');
+    // busta già usata
+    assert.equal((await A.post('/api/deposits', { company_id: ctx.company, report_ids: [ctx.rep], deposit_date: '2026-09-24', envelopes: [{ code: 'MPV0001' }] })).status, 400);
+    // rendiconto versato non si elimina né si annulla
+    assert.equal((await A.del(`/api/reports/${id2}`, { reason: 'prova eliminazione' })).status, 400);
+    assert.equal((await A.post(`/api/reports/${id2}/undo`, { reason: 'prova annullo' })).status, 400);
+    const pdf = await A.raw(`/api/deposits/${ctx.dep}/pdf`);
+    assert.equal(pdf.headers.get('content-type'), 'application/pdf');
+    (await import('node:fs')).writeFileSync('/tmp/versamento_test.pdf', Buffer.from(await pdf.arrayBuffer()));
+    r = await A.post(`/api/deposits/${ctx.dep}/pickup`, { operator_name: 'Paolo Verdi (Mondialpol)' });
+    assert.equal(r.data.status, 'RITIRATO');
+    r = await A.post(`/api/deposits/${ctx.dep}/bank`, { amount: 200, date: '2026-09-24' });
+    assert.equal(r.data.status, 'ACCREDITATO');
+    assert.equal((await A.del(`/api/deposits/${ctx.dep}`, { reason: 'prova' })).status, 400, 'accreditato non si elimina');
+    r = await A.post(`/api/deposits/${ctx.dep}/undo`, { reason: 'Accredito registrato per errore' });
+    assert.equal(r.data.status, 'RITIRATO');
+    assert.equal((await O.get('/api/deposits')).status, 403, 'operatore non vede i versamenti');
+  });
+  await t.test('PDF del gestionale: caricamento e lettura importi', async () => {
+    const r0 = await O.post('/api/reports', { site_id: ctx.site, report_date: '2026-09-19' });
+    const PDFDocument = (await import('pdfkit')).default;
+    const doc = new PDFDocument(); const chunks = []; doc.on('data', (c) => chunks.push(c));
+    const done = new Promise((res) => doc.on('end', res));
+    doc.text('CHIUSURA CASSA del 19/09/2026'); doc.text('Contanti 1.234,50'); doc.text('POS Bancomat 456,00'); doc.text('Bonifici 0,00'); doc.text('TOTALE INCASSI 1.690,50'); doc.end(); await done;
+    const fd = new FormData(); fd.append('file', new Blob([Buffer.concat(chunks)], { type: 'application/pdf' }), 'chiusura.pdf');
+    const r = await O.post(`/api/reports/${r0.data.id}/system-pdf`, fd);
+    assert.equal(r.status, 200, JSON.stringify(r.data));
+    assert.equal(r.data.extracted.total, 1690.5);
+    assert.equal(r.data.extracted.cash, 1234.5);
+    assert.equal(r.data.report.has_system_pdf, true);
+    assert.equal((await O.raw(`/api/reports/${r0.data.id}/system-pdf`)).status, 200);
+    await O.del(`/api/reports/${r0.data.id}`);
+  });
+  await t.test('profilo Partner: solo statistiche e royalty confermate', async () => {
+    let r = await S.post('/api/users', { email: 'farmacia@ospitante.it', full_name: 'Farmacia Comunale 3', role: 'PARTNER', company_id: ctx.company, auth_provider: 'LOCAL', site_ids: [ctx.site] });
+    assert.equal(r.status, 201, JSON.stringify(r.data));
+    const Pc = client();
+    await loginWithOnboarding(Pc, 'farmacia@ospitante.it', r.data.temporaryPassword, NEWPWD, false);
+    assert.equal((await Pc.get('/api/reports')).status, 403);
+    assert.equal((await Pc.get('/api/users')).status, 403);
+    assert.equal((await Pc.post('/api/reports', { site_id: ctx.site, report_date: '2026-09-18' })).status, 403);
+    r = await Pc.get('/api/stats/summary?from=2026-08-01&to=2026-08-31');
+    assert.equal(r.status, 200);
+    r = await Pc.get('/api/canoni/summary?period=2026-08');
+    assert.equal(r.status, 200);
+    assert.equal(r.data.rows[0].pending, true, 'non confermato: in attesa');
+    assert.equal((await Pc.raw(`/api/canoni/sites/${ctx.site}/pdf?period=2026-08`)).status, 403);
+    // operatore non vede le royalty di sede
+    assert.equal((await O.get('/api/canoni/summary?period=2026-08')).status, 403);
+    // conferma admin: mese corrente rifiutato, agosto ok
+    assert.equal((await A.post(`/api/canoni/sites/${ctx.site}/confirm`, { period: '2026-09' })).status, 400);
+    r = await A.post(`/api/canoni/sites/${ctx.site}/confirm`, { period: '2026-08' });
+    assert.equal(r.status, 201, JSON.stringify(r.data));
+    assert.equal((await A.post(`/api/canoni/sites/${ctx.site}/confirm`, { period: '2026-08' })).status, 400, 'doppia conferma');
+    r = await Pc.get('/api/canoni/summary?period=2026-08');
+    assert.equal(r.data.rows[0].confirmed, true);
+    assert.equal(r.data.rows[0].total, 345);
+    assert.equal((await Pc.raw(`/api/canoni/sites/${ctx.site}/pdf?period=2026-08`)).status, 200);
+    // cambio condizioni dopo conferma non altera il confermato
+    await A.put(`/api/sites/${ctx.site}`, { royalty_pct: 10 });
+    r = await A.get('/api/canoni/summary?period=2026-08');
+    assert.equal(r.data.rows[0].total, 345);
+    // annullo conferma
+    r = await A.post(`/api/canoni/sites/${ctx.site}/unconfirm`, { period: '2026-08', reason: 'Correzione condizioni contrattuali' });
+    assert.equal(r.status, 200);
+    assert.equal((await Pc.get('/api/canoni/summary?period=2026-08')).data.rows[0].pending, true);
+  });
   await t.test('eliminazione: operatore solo bozze proprie, amministratore tutto con motivazione', async () => {
-    // rendiconto versato: l'operatore non può, l'admin senza motivo no, con motivo sì
+    // rendiconto verificato: l'operatore non può, l'admin senza motivo no, con motivo sì
     assert.equal((await O.del(`/api/reports/${ctx.rep}`)).status, 400);
     assert.equal((await A.del(`/api/reports/${ctx.rep}`)).status, 400);
     const r = await A.del(`/api/reports/${ctx.rep}`, { reason: 'Rendiconto di prova da eliminare' });

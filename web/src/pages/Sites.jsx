@@ -5,7 +5,7 @@ import { useApi, Card, Field, Loading, ErrorBox, Empty, Badge, Modal, MoneyInput
 import { eur, itDateTime } from '../format.js';
 
 const DAYS = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom'];
-const empty = { company_id: '', code: '', name: '', address: '', city: '', cash_float: 0, operating_days: '1111110', pos_terminals: '', active: true, float_reason: '', host_name: '', host_vat: '', royalty_fixed_monthly: 0, royalty_pct: 0, royalty_base: 'TOTALE', royalty_vat_rate: 0, royalty_notes: '' };
+const empty = { company_id: '', code: '', name: '', address: '', city: '', province: '', cash_float: 0, operating_days: '1111110', pos_terminals: '', active: true, float_reason: '', host_name: '', host_vat: '', royalty_fixed_monthly: 0, royalty_pct: 0, royalty_base: 'TOTALE', royalty_vat_rate: 0, royalty_notes: '' };
 const BASES = { TOTALE: 'Totale incassi (contanti, POS, bonifici)', CONTANTI_POS: 'Contanti e POS', CONTANTI: 'Solo contanti' };
 
 export default function Sites() {
@@ -19,7 +19,7 @@ export default function Sites() {
   const [err, setErr] = useState(null);
   const save = async () => {
     setErr(null);
-    const b = { ...edit, company_id: Number(edit.company_id || user.company_id), cash_float: Number(edit.cash_float), address: edit.address || null, city: edit.city || null, pos_terminals: edit.pos_terminals || null,
+    const b = { ...edit, company_id: Number(edit.company_id || user.company_id), cash_float: Number(edit.cash_float), address: edit.address || null, city: edit.city || null, province: edit.province || null, pos_terminals: edit.pos_terminals || null,
       host_name: edit.host_name || null, host_vat: edit.host_vat || null, royalty_fixed_monthly: Number(edit.royalty_fixed_monthly) || 0, royalty_pct: Number(edit.royalty_pct) || 0, royalty_vat_rate: Number(edit.royalty_vat_rate) || 0, royalty_notes: edit.royalty_notes || null };
     delete b.company_name; delete b.company_code; delete b.users_count; delete b.created_at; delete b.updated_at;
     try {
@@ -41,7 +41,7 @@ export default function Sites() {
           <thead><tr><th>Codice</th><th>Sede</th>{sup && <th>Azienda</th>}<th>Giorni operativi</th><th>Struttura ospitante</th><th>Canone</th><th className="num">Fondo cassa</th><th className="num">Utenti</th><th>Stato</th><th /></tr></thead>
           <tbody>{data.map((s) => (
             <tr key={s.id}>
-              <td className="mono">{s.code}</td><td><b>{s.name}</b><div className="small muted">{[s.address, s.city].filter(Boolean).join(', ')}</div></td>
+              <td className="mono">{s.code}</td><td><b>{s.name}</b><div className="small muted">{[s.address, s.city, s.province && `(${s.province})`].filter(Boolean).join(' ')}</div></td>
               {sup && <td>{s.company_name}</td>}
               <td>{DAYS.map((d, i) => <span key={d} className="chip" style={{ opacity: s.operating_days[i] === '1' ? 1 : .3 }}>{d}</span>)}</td>
               <td>{s.host_name || <span className="muted">–</span>}</td>
@@ -49,7 +49,7 @@ export default function Sites() {
               <td className="num strong">{eur(s.cash_float)} <button className="btn link small" onClick={() => setHist(s)}>storico</button></td>
               <td className="num">{s.users_count}</td>
               <td>{s.active ? <Badge tone="green">Attiva</Badge> : <Badge tone="red">Disattiva</Badge>}</td>
-              <td className="num"><button className="btn sm ghost" onClick={() => setEdit({ ...s, pos_terminals: s.pos_terminals || '', address: s.address || '', city: s.city || '', float_reason: '', host_name: s.host_name || '', host_vat: s.host_vat || '', royalty_notes: s.royalty_notes || '' })}>Modifica</button></td>
+              <td className="num"><button className="btn sm ghost" onClick={() => setEdit({ ...s, pos_terminals: s.pos_terminals || '', address: s.address || '', city: s.city || '', province: s.province || '', float_reason: '', host_name: s.host_name || '', host_vat: s.host_vat || '', royalty_notes: s.royalty_notes || '' })}>Modifica</button></td>
             </tr>))}</tbody>
         </table></div></div>
       )}
@@ -62,6 +62,7 @@ export default function Sites() {
             <Field label="Nome sede"><input value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} /></Field>
             <Field label="Indirizzo"><input value={edit.address} onChange={(e) => setEdit({ ...edit, address: e.target.value })} /></Field>
             <Field label="Città"><input value={edit.city} onChange={(e) => setEdit({ ...edit, city: e.target.value })} /></Field>
+            <Field label="Provincia (sigla)"><input value={edit.province} maxLength={4} style={{ textTransform: 'uppercase' }} onChange={(e) => setEdit({ ...edit, province: e.target.value })} /></Field>
             <Field label="Fondo cassa" help="Somma che resta in sede e viene sottratta dal contante versato"><MoneyInput value={edit.cash_float} onChange={(v) => setEdit({ ...edit, cash_float: v === '' ? 0 : v })} /></Field>
             <Field label="Terminali POS (TID separati da virgola)" help="Servono per riconoscere la sede negli estratti dell'acquirer"><input value={edit.pos_terminals} onChange={(e) => setEdit({ ...edit, pos_terminals: e.target.value })} /></Field>
           </div>

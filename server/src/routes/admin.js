@@ -94,6 +94,7 @@ const siteSchema = z.object({
   name: z.string().min(2).max(120),
   address: opt(z.string().max(200)),
   city: opt(z.string().max(100)),
+  province: opt(z.string().max(4).transform((v) => (v ? v.toUpperCase() : v))),
   cash_float: z.number().min(0).max(100000),
   operating_days: z.string().regex(/^[01]{7}$/).default('1111110'),
   pos_terminals: opt(z.string().max(300)),
@@ -131,10 +132,10 @@ r.post('/sites', requireRole('SUPERADMIN', 'ADMIN'), ah(async (req, res) => {
   assertCompany(req.user, d.company_id);
   if (await one('SELECT 1 FROM sites WHERE company_id=$1 AND code=$2', [d.company_id, d.code])) throw bad('Codice sede già esistente per questa azienda');
   const row = await tx(async (c) => {
-    const s = (await c.query(`INSERT INTO sites (company_id, code, name, address, city, cash_float, operating_days, pos_terminals, active,
+    const s = (await c.query(`INSERT INTO sites (company_id, code, name, address, city, province, cash_float, operating_days, pos_terminals, active,
         host_name, host_vat, royalty_fixed_monthly, royalty_pct, royalty_base, royalty_vat_rate, royalty_notes)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id`,
-    [d.company_id, d.code, d.name, d.address, d.city, d.cash_float, d.operating_days, d.pos_terminals, d.active,
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING id`,
+    [d.company_id, d.code, d.name, d.address, d.city, d.province, d.cash_float, d.operating_days, d.pos_terminals, d.active,
       d.host_name, d.host_vat, d.royalty_fixed_monthly, d.royalty_pct, d.royalty_base, d.royalty_vat_rate, d.royalty_notes])).rows[0];
     await c.query('INSERT INTO cash_float_history (site_id, old_value, new_value, changed_by, reason) VALUES ($1,NULL,$2,$3,$4)',
       [s.id, d.cash_float, req.user.id, 'Impostazione iniziale']);
@@ -180,7 +181,7 @@ const tempPassword = () => {
 const userSchema = z.object({
   email: z.string().email().transform((v) => v.toLowerCase()),
   full_name: z.string().min(2).max(120),
-  role: z.enum(['SUPERADMIN', 'ADMIN', 'OPERATOR']),
+  role: z.enum(['SUPERADMIN', 'ADMIN', 'OPERATOR', 'PARTNER']),
   company_id: z.number().int().nullable().optional(),
   auth_provider: z.enum(['LOCAL', 'ENTRA', 'BOTH']),
   site_ids: z.array(z.number().int()).default([]),
@@ -196,7 +197,7 @@ async function checkUserPayload(req, d, existing) {
   if (d.role === 'SUPERADMIN') { d.company_id = null; d.site_ids = []; }
   else if (!d.company_id) throw bad('Azienda obbligatoria');
   if (d.role === 'ADMIN') d.site_ids = []; // l'amministratore vede tutte le sedi dell'azienda
-  if (d.role === 'OPERATOR' && !d.site_ids.length) throw bad("Assegna almeno una sede all'operatore");
+  if (['OPERATOR', 'PARTNER'].includes(d.role) && !d.site_ids.length) throw bad('Assegna almeno una sede');
   if (d.site_ids.length) {
     const bad2 = await one('SELECT count(*)::int AS n FROM sites WHERE id = ANY($1::int[]) AND company_id <> $2', [d.site_ids, d.company_id]);
     if (bad2.n) throw bad("Le sedi devono appartenere all'azienda dell'utente");

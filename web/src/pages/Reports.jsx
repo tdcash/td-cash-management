@@ -32,7 +32,7 @@ export default function Reports() {
           <select value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}>
             <option value="">Tutti</option>
             {Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-            <option value="DRAFT,CLOSED,PROCESSED,PICKED_UP">Non ancora versati</option>
+            <option value="DRAFT,CLOSED,PROCESSED,PICKED_UP">Non ancora verificati</option><option value="VERIFIED">In cassaforte</option>
           </select>
         </Field>
         <PeriodFilter value={f} onChange={setF} />
@@ -57,7 +57,7 @@ export default function Reports() {
                   <td className="num">{eur(r.cash_to_deposit)}</td>
                   <td className="num">{eur(r.pos_total)}</td>
                   <td className="num">{eur(r.transfer_total)}</td>
-                  <td className="num strong">{eur(r.day_total)}</td>
+                  <td className="num strong">{r.status === 'DRAFT' ? <span className="muted">bozza</span> : eur(r.day_total)}</td>
                   <td className={`num ${diff ? 'red' : 'muted'}`}>{diff == null ? '–' : eur(diff)}</td>
                   <td className="num" style={{ whiteSpace: 'nowrap' }}>{r.open_nc > 0 && <Badge tone="red">{r.open_nc} NC</Badge>}
                     {canDelete(r) && <button className="iconbtn" title="Elimina rendiconto" aria-label="Elimina rendiconto" onClick={(e) => { e.stopPropagation(); setDel(r); }}><Icon name="trash" size={16} /></button>}

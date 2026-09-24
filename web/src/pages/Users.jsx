@@ -44,7 +44,7 @@ export default function Users() {
         <button className="btn" onClick={() => setEdit({ ...empty, company_id: user.company_id || companies.data?.[0]?.id || '' })}>+ Nuovo utente</button>
       </div>
       <ErrorBox error={err} />
-      <div className="alert info" style={{ marginBottom: 14 }}>Super amministratore: crea aziende e vede tutto. Amministratore: gestisce sedi, utenti, fondi cassa e segnalazioni della sua azienda. Operatore: compila e consulta i rendiconti delle sedi assegnate.</div>
+      <div className="alert info" style={{ marginBottom: 14 }}>Super amministratore: crea aziende e vede tutto. Amministratore: gestisce sedi, utenti, fondi cassa, segnalazioni, operazioni logistiche, riconteggi e versamenti della sua azienda. Operatore: compila e consulta i rendiconti delle sedi assegnate. Partner: struttura ospitante, vede solo statistiche incassi e royalty di sede confermate delle sue sedi.</div>
       {!data ? <Loading /> : !data.length ? <div className="card"><Empty>Nessun utente</Empty></div> : (
         <div className="card"><div className="table-wrap"><table className="t">
           <thead><tr><th>Nome</th><th>Email</th><th>Ruolo</th>{sup && <th>Azienda</th>}<th>Sedi</th><th>Accesso</th><th>Ultimo accesso</th><th>Stato</th><th /></tr></thead>
@@ -52,7 +52,7 @@ export default function Users() {
             <tr key={u.id}>
               <td className="strong">{u.full_name}</td><td>{u.email}</td><td>{ROLE[u.role]}</td>
               {sup && <td>{u.company_name || <span className="muted">tutte</span>}</td>}
-              <td>{u.role === 'OPERATOR' ? (u.site_ids || []).map((id) => <span key={id} className="chip">{sites.data?.find((s) => s.id === id)?.name || id}</span>) : <span className="muted small">tutte dell'azienda</span>}</td>
+              <td>{['OPERATOR', 'PARTNER'].includes(u.role) ? (u.site_ids || []).map((id) => <span key={id} className="chip">{sites.data?.find((s) => s.id === id)?.name || id}</span>) : <span className="muted small">tutte dell'azienda</span>}</td>
               <td className="small">{PROVIDER[u.auth_provider]}{u.auth_provider !== 'ENTRA' && <div>{u.totp_enabled ? <Badge tone="green">2FA attiva</Badge> : <Badge>2FA no</Badge>} {u.must_change_password && <Badge tone="mauve">password temporanea</Badge>}</div>}</td>
               <td className="small muted">{u.last_login_at ? itDateTime(u.last_login_at) : 'mai'}{u.locked_until && new Date(u.locked_until) > new Date() && <div className="red">bloccato</div>}</td>
               <td>{u.active ? <Badge tone="green">Attivo</Badge> : <Badge tone="red">Disattivo</Badge>}</td>
@@ -70,11 +70,11 @@ export default function Users() {
           <div className="form-grid">
             <Field label="Nome e cognome"><input value={edit.full_name} onChange={(e) => setEdit({ ...edit, full_name: e.target.value })} /></Field>
             <Field label="Email" help="Per l'accesso Microsoft deve coincidere con l'account Office 365"><input type="email" value={edit.email} onChange={(e) => setEdit({ ...edit, email: e.target.value })} /></Field>
-            <Field label="Ruolo"><select value={edit.role} onChange={(e) => setEdit({ ...edit, role: e.target.value })}>{sup && <option value="SUPERADMIN">Super amministratore</option>}<option value="ADMIN">Amministratore</option><option value="OPERATOR">Operatore</option></select></Field>
+            <Field label="Ruolo"><select value={edit.role} onChange={(e) => setEdit({ ...edit, role: e.target.value })}>{sup && <option value="SUPERADMIN">Super amministratore</option>}<option value="ADMIN">Amministratore</option><option value="OPERATOR">Operatore</option><option value="PARTNER">Partner (struttura ospitante)</option></select></Field>
             {sup && edit.role !== 'SUPERADMIN' && <Field label="Azienda"><select value={edit.company_id} onChange={(e) => setEdit({ ...edit, company_id: e.target.value, site_ids: [] })}>{(companies.data || []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></Field>}
             <Field label="Metodo di accesso"><select value={edit.auth_provider} onChange={(e) => setEdit({ ...edit, auth_provider: e.target.value })}>{Object.entries(PROVIDER).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
           </div>
-          {edit.role === 'OPERATOR' && (
+          {['OPERATOR', 'PARTNER'].includes(edit.role) && (
             <div style={{ marginTop: 12 }}>
               <div className="small strong muted" style={{ marginBottom: 6 }}>Sedi su cui può operare</div>
               {compSites.length ? <div className="row">{compSites.map((s) => <label key={s.id} className="f inline"><input type="checkbox" checked={edit.site_ids.includes(s.id)} onChange={(e) => setEdit({ ...edit, site_ids: e.target.checked ? [...edit.site_ids, s.id] : edit.site_ids.filter((x) => x !== s.id) })} />{s.name}</label>)}</div> : <div className="small red">Nessuna sede per questa azienda: creala prima.</div>}

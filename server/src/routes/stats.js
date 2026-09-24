@@ -78,8 +78,9 @@ r.get('/summary', ah(async (req, res) => {
   if (req.query.site_id) w3.push(`s.id = ${P3.add(Number(req.query.site_id))}`);
   const late = await many(`SELECT r.id, r.report_date, r.status, r.cash_to_deposit, r.envelope_code, s.name AS site_name, c.name AS company_name,
       CASE WHEN r.status IN ('DRAFT','CLOSED') THEN 'Distinta non elaborata'
-           WHEN r.status='PROCESSED' THEN 'Busta non ritirata'
-           ELSE 'Accredito non confermato' END AS issue
+           WHEN r.status='PROCESSED' THEN 'Operazione logistica non registrata'
+           WHEN r.status='PICKED_UP' THEN 'Riconteggio non eseguito'
+           ELSE 'In cassaforte, non versato' END AS issue
     FROM cash_reports r JOIN sites s ON s.id=r.site_id JOIN companies c ON c.id=s.company_id
     WHERE ${w3.join(' AND ')} AND r.status <> 'DEPOSITED'
       AND r.report_date < (current_date - ${P3.add(alertDays)}::int)
@@ -120,8 +121,8 @@ r.get('/export.csv', ah(async (req, res) => {
       r.cash_counted AS contante_contato, r.cash_float AS fondo_cassa, r.cash_to_deposit AS contante_versato,
       r.pos_total AS pos, r.transfer_total AS bonifici, (r.cash_to_deposit+r.pos_total+r.transfer_total) AS totale,
       r.expected_total AS gestionale, r.envelope_code AS busta_mondialpol, r.slip_number AS distinta,
-      r.pickup_operator AS ritirata_da, r.pickup_at AS ritirata_il, r.deposit_amount AS accreditato, r.deposit_date AS data_accredito
-    FROM cash_reports r JOIN sites s ON s.id=r.site_id JOIN companies c ON c.id=s.company_id
+      r.pickup_operator AS operatore_logistica, r.pickup_at AS logistica_il, r.verified_amount AS riconteggiato, r.verified_at AS verificato_il, dep.number AS versamento
+    FROM cash_reports r JOIN sites s ON s.id=r.site_id JOIN companies c ON c.id=s.company_id LEFT JOIN cash_deposits dep ON dep.id=r.deposit_id
     WHERE ${where.join(' AND ')} AND r.report_date BETWEEN ${P.add(from)} AND ${P.add(to)} ORDER BY r.report_date, c.name, s.name`, P.values);
   const cols = rows.length ? Object.keys(rows[0]) : ['azienda'];
   const fmt = (v) => {

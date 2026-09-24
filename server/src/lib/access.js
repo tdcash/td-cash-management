@@ -58,10 +58,21 @@ export const isSuper = (u) => u.role === 'SUPERADMIN';
 export const isAdmin = (u) => u.role === 'ADMIN' || u.role === 'SUPERADMIN';
 
 // Clausola SQL che limita le sedi visibili all'utente (alias della tabella sites)
+// OPERATOR e PARTNER vedono solo le sedi assegnate
 export function siteScope(user, P, alias = 's') {
   if (user.role === 'SUPERADMIN') return 'TRUE';
   if (user.role === 'ADMIN') return `${alias}.company_id = ${P.add(user.company_id)}`;
   return `${alias}.id = ANY(${P.add(user.site_ids || [])}::int[])`;
+}
+
+// Il Partner (struttura ospitante) è in sola lettura su un perimetro ristretto
+const PARTNER_ALLOWED = [/^\/api\/auth\//, /^\/api\/stats\/summary/, /^\/api\/stats\/export\.csv/, /^\/api\/sites$/, /^\/api\/canoni\//, /^\/api\/nc$/];
+export function partnerGuard(req, _res, next) {
+  if (req.user?.role !== 'PARTNER') return next();
+  const path = req.originalUrl.split('?')[0];
+  if (req.method !== 'GET' && !path.startsWith('/api/auth/')) return next(forbidden('Profilo in sola lettura'));
+  if (!PARTNER_ALLOWED.some((re) => re.test(path))) return next(forbidden('Sezione non disponibile per il profilo Partner'));
+  next();
 }
 
 export function companyScope(user, P, col = 'company_id') {

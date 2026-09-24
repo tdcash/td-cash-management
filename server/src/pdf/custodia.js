@@ -29,10 +29,9 @@ export async function buildCustodyPdf({ report, company, site, preparedBy, prepa
 
   // Identificazione
   const info = [
-    ['Azienda', `${company.name} (${company.code})`],
-    ['Sede', `${site.name} (${site.code})${site.address ? `, ${site.address}` : ''}${site.city ? `, ${site.city}` : ''}`],
-    ['Data incasso', itDate(report.report_date)],
-    ['Contenuto dichiarato', `Contante ${eur(report.cash_to_deposit)}${report.receipts?.length ? `, distinta di versamento rev. ${report.slip_revision}` : ''}`],
+    ['Azienda', company.name],
+    ['Sede', `${site.name} (${site.code})${site.address ? `, ${site.address}` : ''}${site.city ? `, ${site.city}` : ''}${site.province ? ` (${site.province})` : ''}`],
+    ['Rendiconto del', itDate(report.report_date)],
   ];
   const infoW = W * 0.58;
   let iy = y;
@@ -76,14 +75,14 @@ export async function buildCustodyPdf({ report, company, site, preparedBy, prepa
     'Chi ha elaborato la cassa inserisce il contante e la copia della distinta nella busta, la sigilla e ne verifica l\'integrità.',
     [['Preparata da', preparedBy], ['Data e ora', fullDT(preparedAt)], ['Sigillo integro (sì/no)', null], ['Firma di chi prepara', null]], 96);
 
-  step(2, 'Consegna all\'operatore di logistica',
-    'L\'operatore verifica il codice a barre e l\'integrità del sigillo, poi prende in carico la busta. Firmano entrambi.',
-    [['Operatore logistica (nome e cognome)', report.pickup_operator || null], ['Data e ora ritiro', fullDT(report.pickup_at)], ['Documento / matricola operatore', null], ['Targa o codice mezzo', null],
-      ['Firma di chi consegna', null], ['Firma operatore logistica', null]], 120);
+  step(2, 'Operazione logistica: consegna all\'amministratore di sede',
+    'L\'operatore di logistica trasporta la busta sigillata e la consegna all\'amministratore di sede, che verifica codice a barre e integrità del sigillo e la ripone in cassaforte. Firmano entrambi.',
+    [['Operatore logistica (nome e cognome)', report.pickup_operator || null], ['Data e ora consegna', fullDT(report.pickup_at)], ['Documento / matricola operatore', null], ['Ricevuta da (amministratore di sede)', null],
+      ['Firma operatore logistica', null], ['Firma amministratore di sede', null]], 120);
 
-  step(3, 'Ricezione al centro conta / banca',
-    'Compilato dal destinatario. Eventuali differenze rispetto al contenuto dichiarato vanno segnalate all\'azienda entro il giorno lavorativo successivo.',
-    [['Ricevuta da', null], ['Data e ora', null], ['Importo verificato', null], ['Anomalie riscontrate', null], ['Firma ricevente', null], ['Timbro', null]], 120);
+  step(3, 'Ricezione Area Finance - Toscana Diagnostica',
+    'Riconteggio e verifica del contenuto. Eventuali differenze rispetto alla distinta generano una segnalazione alla sede.',
+    [['Riconteggiata da', report.verified_by_name || null], ['Data e ora', fullDT(report.verified_at)], ['Importo verificato', report.verified_amount != null ? eur(report.verified_amount) : null], ['Anomalie riscontrate', report.verified_amount != null ? (Number(report.verified_amount) === Number(report.cash_to_deposit) ? 'Nessuna' : `Differenza ${eur(report.verified_amount - report.cash_to_deposit)}`) : null], ['Firma Area Finance', null], ['Timbro', null]], 120);
 
   // Note e piè
   const noteY = Math.min(y, CONTENT_BOTTOM - 40);

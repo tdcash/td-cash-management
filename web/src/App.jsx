@@ -15,6 +15,7 @@ import Stats from './pages/Stats.jsx';
 import Reconcile from './pages/Reconcile.jsx';
 import Royalty from './pages/Royalty.jsx';
 import SiteRoyalty from './pages/SiteRoyalty.jsx';
+import Deposits from './pages/Deposits.jsx';
 import Companies from './pages/Companies.jsx';
 import Sites from './pages/Sites.jsx';
 import Users from './pages/Users.jsx';
@@ -27,7 +28,8 @@ function Shell() {
   const [open, setOpen] = useState(false);
   const loc = useLocation();
   React.useEffect(() => setOpen(false), [loc.pathname]);
-  const nc = useApi('/nc?status=APERTA', [loc.pathname]);
+  const partner = user.role === 'PARTNER';
+  const nc = useApi(partner ? null : '/nc?status=APERTA', [loc.pathname]);
   const openNc = nc.data?.length || 0;
   const admin = can(user, 'SUPERADMIN', 'ADMIN');
   const sup = can(user, 'SUPERADMIN');
@@ -39,17 +41,23 @@ function Shell() {
       <aside className={`side ${open ? 'open' : ''}`}>
         <div className="brand"><img src="/logo-light.svg" alt="Toscana Diagnostica" /><div className="app">Cash Management</div></div>
         <nav>
+          {partner ? <>
+            <div className="group">Struttura ospitante</div>
+            <L to="/statistiche" icon="chart">Statistiche incassi</L>
+            <L to="/canoni" icon="percent">Royalty di sede</L>
+          </> : <>
           <div className="group">Operatività</div>
           <L to="/" icon="home" end>Cruscotto</L>
           <L to="/rendiconti/nuovo" icon="plus">Nuovo rendiconto</L>
           <L to="/rendiconti" icon="cash" end>Rendiconti</L>
+          {admin && <L to="/versamenti" icon="shield">Cassaforte e versamenti</L>}
           <L to="/nc" icon="alert" count={openNc}>Errori e NC</L>
           <div className="group">Analisi</div>
           <L to="/statistiche" icon="chart">Statistiche</L>
-          <L to="/canoni" icon="percent">Royalty di sede</L>
-          {admin && <L to="/riconciliazione" icon="link">Riconciliazione</L>}
+          {admin && <L to="/canoni" icon="percent">Royalty di sede</L>}
+          {admin && <L to="/riconciliazione" icon="link">Riconciliazione</L>}</>}
           {sup && <L to="/royalty" icon="link">Partner: royalty e SEPA</L>}
-          {admin && <>
+          {admin && !partner && <>
             <div className="group">Anagrafiche</div>
             <L to="/aziende" icon="building">{sup ? 'Aziende' : 'Azienda'}</L>
             <L to="/sedi" icon="pin">Sedi e fondo cassa</L>
@@ -70,14 +78,21 @@ function Shell() {
       <main className="main">
         <div className="topbar"><button onClick={() => setOpen(!open)} aria-label="Menu">☰</button><img src="/logo-light.svg" alt="" /></div>
         <Routes>
+          {partner ? <>
+            <Route path="/statistiche" element={<Stats />} />
+            <Route path="/canoni" element={<SiteRoyalty />} />
+            <Route path="/profilo" element={<Profile />} />
+            <Route path="*" element={<Navigate to="/canoni" replace />} />
+          </> : <>
           <Route path="/" element={<Dashboard />} />
           <Route path="/rendiconti" element={<Reports />} />
           <Route path="/rendiconti/nuovo" element={<NewReport />} />
           <Route path="/rendiconti/:id" element={<ReportEdit />} />
+          {admin && <Route path="/versamenti" element={<Deposits />} />}
           <Route path="/nc" element={<NcList />} />
           <Route path="/nc/:id" element={<NcDetail />} />
           <Route path="/statistiche" element={<Stats />} />
-          <Route path="/canoni" element={<SiteRoyalty />} />
+          {admin && <Route path="/canoni" element={<SiteRoyalty />} />}
           {admin && <Route path="/riconciliazione" element={<Reconcile />} />}
           {sup && <Route path="/royalty" element={<Royalty />} />}
           {admin && <Route path="/aziende" element={<Companies />} />}
@@ -87,6 +102,7 @@ function Shell() {
           {sup && <Route path="/impostazioni" element={<Settings />} />}
           <Route path="/profilo" element={<Profile />} />
           <Route path="*" element={<Navigate to="/" replace />} />
+          </>}
         </Routes>
       </main>
     </div>

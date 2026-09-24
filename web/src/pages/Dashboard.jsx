@@ -15,7 +15,7 @@ export default function Dashboard() {
   const todayRows = useApi('/stats/today');
   const d = s.data;
   const pct = (v) => (d?.totals.total ? (Number(v) / d.totals.total) * 100 : 0);
-  const pending = (d?.by_status?.CLOSED || 0) + (d?.by_status?.DRAFT || 0);
+  const pending = (d?.by_status?.CLOSED || 0) + (d?.by_status?.DRAFT || 0) + (d?.by_status?.PROCESSED || 0) + (d?.by_status?.PICKED_UP || 0);
 
   return (
     <div className="page">
@@ -42,7 +42,7 @@ export default function Dashboard() {
         <div className="grid g4" style={{ marginTop: 16 }}>
           <Kpi label="Rendiconti mancanti" value={d.missing.length} foot="giorni operativi senza rendiconto" />
           <Kpi label="Flussi in ritardo" value={d.late.length} foot={`fermi da oltre ${d.alert_days} giorni`} />
-          <Kpi label="In lavorazione" value={pending} foot="bozze e buste da elaborare" />
+          <Kpi label="In lavorazione" value={pending} foot="non ancora verificati" />
           <Kpi label="Errori e NC aperte" value={d.nc.open + d.nc.answered} foot={`${d.nc.answered} con risposta da valutare${d.nc.overdue ? ` · ${d.nc.overdue} scadute` : ''}`} />
         </div>
 
