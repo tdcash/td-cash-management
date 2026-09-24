@@ -1,10 +1,11 @@
-# Deploy di prova su Render (https://render.com): New > Blueprint > collega il repository.
-# Crea database PostgreSQL e app in un colpo. Poi imposta le variabili marcate sync: false dal pannello.
+# Deploy di PROVA GRATUITA su Render: New > Blueprint > collega il repository.
+# Piano free: l'app si addormenta dopo 15 minuti di inattivita' (primo accesso lento), il database gratuito scade dopo 30 giorni.
+# Per la produzione: plan: starter (web) e plan: basic-256mb (database), poi Sync Blueprint.
 services:
   - type: web
     name: td-cash
     runtime: docker
-    plan: starter
+    plan: free
     region: frankfurt
     healthCheckPath: /api/health
     envVars:
@@ -31,14 +32,14 @@ services:
       - key: SEED_SUPERADMIN_PASSWORD
         sync: false   # inserire a mano nel pannello (min 12 caratteri): richiesta al primo accesso, poi da cambiare
       - key: ENTRA_TENANT_ID
-        sync: false
+        value: ""
       - key: ENTRA_CLIENT_ID
-        sync: false
+        value: ""
       - key: ENTRA_CLIENT_SECRET
-        sync: false
+        value: ""
 databases:
   - name: td-cash-db
-    plan: basic-256mb
+    plan: free
     region: frankfurt
     databaseName: cash
     user: cash
