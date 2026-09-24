@@ -5,6 +5,7 @@ import { ah, bad, forbidden, notFound, audit, parse, todayRome, eur, itDate } fr
 import { Params, siteScope, assertSite, isAdmin, requireRole } from '../lib/access.js';
 import { BANKNOTES, CIRCUITS, computeTotals, STATUS_LABEL } from '../lib/cash.js';
 import { buildSlipPdf } from '../pdf/distinta.js';
+import { buildCustodyPdf } from '../pdf/custodia.js';
 import crypto from 'node:crypto';
 
 const r = Router();
@@ -24,7 +25,7 @@ async function loadReport(user, id) {
 }
 
 async function fullReport(id) {
-  const rep = await one(`SELECT r.id, r.site_id, r.report_date, r.status, r.cash_float, r.coins_total, r.cash_counted, r.cash_to_deposit,
+  const rep = await one(`SELECT r.id, r.site_id, r.report_date, r.status, r.created_by, r.cash_float, r.coins_total, r.cash_counted, r.cash_to_deposit,
       r.pos_total, r.transfer_total, r.expected_total, r.envelope_code, r.envelope_at, r.slip_number, r.slip_revision, r.slip_sha256,
       r.processed_at, r.pickup_operator, r.pickup_at, r.deposit_amount, r.deposit_date, r.notes, r.created_at, r.updated_at,
       (r.slip_pdf IS NOT NULL) AS has_pdf,
@@ -53,7 +54,7 @@ r.get('/', ah(async (req, res) => {
   if (from) where.push(`r.report_date >= ${P.add(from)}`);
   if (to) where.push(`r.report_date <= ${P.add(to)}`);
   const limit = Math.min(Number(req.query.limit) || 500, 2000);
-  res.json(await many(`SELECT r.id, r.site_id, r.report_date, r.status, r.cash_counted, r.cash_float, r.cash_to_deposit, r.pos_total, r.transfer_total,
+  res.json(await many(`SELECT r.id, r.site_id, r.report_date, r.status, r.created_by, r.cash_counted, r.cash_float, r.cash_to_deposit, r.pos_total, r.transfer_total,
       r.expected_total, r.envelope_code, r.slip_number, r.pickup_at, r.deposit_amount, r.deposit_date,
       (r.cash_to_deposit + r.pos_total + r.transfer_total) AS day_total,
       s.name AS site_name, s.code AS site_code, c.name AS company_name, c.id AS company_id,
@@ -261,13 +262,33 @@ r.post('/:id/reopen', requireRole('SUPERADMIN', 'ADMIN'), ah(async (req, res) =>
   res.json(await fullReport(rep.id));
 }));
 
+// Eliminazione: l'amministratore può eliminare qualsiasi rendiconto con motivazione; l'operatore solo le proprie bozze mai elaborate
 r.delete('/:id', ah(async (req, res) => {
   const rep = await loadReport(req.user, Number(req.params.id));
-  if (rep.status !== 'DRAFT' || rep.slip_revision > 0) throw bad('Si possono eliminare solo bozze mai elaborate');
-  if (!isAdmin(req.user) && rep.created_by !== req.user.id) throw forbidden('Solo chi ha creato la bozza o un amministratore può eliminarla');
+  const reason = String(req.body?.reason || req.query.reason || '').trim();
+  if (isAdmin(req.user)) {
+    if (rep.status !== 'DRAFT' && reason.length < 5) throw bad('Indica la motivazione dell\'eliminazione (almeno 5 caratteri)');
+  } else {
+    if (rep.status !== 'DRAFT' || rep.slip_revision > 0) throw bad('Puoi eliminare solo bozze mai elaborate. Per gli altri casi chiedi a un amministratore.');
+    if (rep.created_by !== req.user.id) throw forbidden('Solo chi ha creato la bozza o un amministratore può eliminarla');
+  }
+  const snapshot = await fullReport(rep.id);
+  delete snapshot.events;
   await q('DELETE FROM cash_reports WHERE id=$1', [rep.id]);
-  await audit(req, 'REPORT_DELETE', 'report', rep.id, { site_id: rep.site_id, date: rep.report_date });
+  await audit(req, 'REPORT_DELETE', 'report', rep.id, { reason: reason || null, status: rep.status, site: rep.site_name, date: rep.report_date,
+    envelope: rep.envelope_code, slip: rep.slip_number, snapshot });
   res.json({ ok: true });
+}));
+
+// Modulo catena di custodia (dalla distinta elaborata in avanti)
+r.get('/:id/custody.pdf', ah(async (req, res) => {
+  const rep = await loadReport(req.user, Number(req.params.id));
+  if (!['PROCESSED', 'PICKED_UP', 'DEPOSITED'].includes(rep.status)) throw bad('Il modulo si genera dopo l\'elaborazione della distinta');
+  const full = await fullReport(rep.id);
+  const company = await one('SELECT * FROM companies WHERE id=$1', [full.company_id]);
+  const site = await one('SELECT * FROM sites WHERE id=$1', [full.site_id]);
+  const pdf = await buildCustodyPdf({ report: full, company, site, preparedBy: full.processed_by_name, preparedAt: full.processed_at });
+  res.type('application/pdf').set('Content-Disposition', `inline; filename="Custodia_${rep.envelope_code || rep.slip_number}.pdf"`).send(pdf);
 }));
 
 export { STATUS_LABEL };

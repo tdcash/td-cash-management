@@ -15,7 +15,7 @@ const MM = 2.8346;
 export const PAGE = { w: 595.28, h: 841.89 };
 export const M = { left: 20 * MM, right: 20 * MM, top: 12 * MM, bottom: 14 * MM };
 export const CONTENT_TOP = 42 * MM;           // sotto l'intestazione
-export const CONTENT_BOTTOM = PAGE.h - 26 * MM; // sopra il piè di pagina
+export const CONTENT_BOTTOM = PAGE.h - 30 * MM; // sopra il piè di pagina
 export const W = PAGE.w - M.left - M.right;
 
 async function barcode(text) {
@@ -63,7 +63,7 @@ export async function buildSlipPdf({ report, company, site, number, revision, pr
   const done = new Promise((res) => doc.on('end', () => res(Buffer.concat(chunks))));
 
   const bc = report.envelope_code ? await barcode(report.envelope_code) : null;
-  const copies = ['COPIA SEDE', 'COPIA LOGISTICA / MONDIALPOL'];
+  const copies = ['COPIA SEDE', 'COPIA IN BUSTA'];
 
   for (let ci = 0; ci < copies.length; ci++) {
     let y;
@@ -196,24 +196,23 @@ export async function buildSlipPdf({ report, company, site, number, revision, pr
       y += h + 10;
     }
 
-    // Firme: sempre in fondo all'ultima pagina della copia
+    // Firma di chi ha elaborato la cassa: sempre in fondo all'ultima pagina della copia
     const sigH = 84;
     if (y + sigH > CONTENT_BOTTOM) { newPage(); cont(); }
     y = CONTENT_BOTTOM - sigH;
-    const sw = (W - 16) / 2;
-    const sig = (x, title, lines) => {
-      doc.roundedRect(x, y, sw, sigH - 6, 4).lineWidth(0.8).strokeColor(C.teal).stroke();
-      doc.font('B').fontSize(8.5).fillColor(C.teal).text(title, x + 8, y + 7);
-      let ly = y + 22;
-      for (const [label, value] of lines) {
-        doc.font('R').fontSize(8).fillColor(C.grey).text(label, x + 8, ly);
-        if (value) doc.font('B').fontSize(8.5).fillColor(C.jet).text(value, x + 60, ly - 0.5, { width: sw - 68, lineBreak: false });
-        else doc.moveTo(x + 60, ly + 9).lineTo(x + sw - 8, ly + 9).lineWidth(0.5).strokeColor(C.grey).stroke();
-        ly += 17;
-      }
-    };
-    sig(M.left, 'ELABORATA DA', [['Nome', processedBy], ['Data', fullDT(processedAt)], ['Firma', null]]);
-    sig(M.left + sw + 16, 'RITIRATA DA (OPERATORE LOGISTICA)', [['Nome', null], ['Data e ora', null], ['Firma', null]]);
+    const sw = W * 0.6;
+    const sx = M.left + (W - sw) / 2;
+    doc.roundedRect(sx, y, sw, sigH - 6, 4).lineWidth(0.8).strokeColor(C.teal).stroke();
+    doc.font('B').fontSize(8.5).fillColor(C.teal).text('CASSA ELABORATA E FIRMATA DA', sx + 8, y + 7);
+    let ly = y + 22;
+    for (const [label, value] of [['Nome', processedBy], ['Data', fullDT(processedAt)], ['Firma', null]]) {
+      doc.font('R').fontSize(8).fillColor(C.grey).text(label, sx + 8, ly);
+      if (value) doc.font('B').fontSize(8.5).fillColor(C.jet).text(value, sx + 60, ly - 0.5, { width: sw - 68, lineBreak: false });
+      else doc.moveTo(sx + 60, ly + 9).lineTo(sx + sw - 8, ly + 9).lineWidth(0.5).strokeColor(C.grey).stroke();
+      ly += 17;
+    }
+    doc.font('R').fontSize(7.5).fillColor(C.grey).text(
+      'La consegna della busta alla logistica e le relative firme sono registrate sul modulo Catena di custodia.', M.left, y + sigH - 2, { width: W, align: 'center' });
   }
 
   // Numerazione pagine

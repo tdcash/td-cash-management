@@ -23,7 +23,7 @@ function client() {
     let data; try { data = JSON.parse(txt); } catch { data = txt; }
     return { status: res.status, data };
   };
-  return { get: (u) => call('GET', u), post: (u, b) => call('POST', u, b || {}), put: (u, b) => call('PUT', u, b), del: (u) => call('DELETE', u), raw: (u) => call('GET', u, null, true) };
+  return { get: (u) => call('GET', u), post: (u, b) => call('POST', u, b || {}), put: (u, b) => call('PUT', u, b), del: (u, b) => call('DELETE', u, b), raw: (u) => call('GET', u, null, true) };
 }
 
 const S = client(); const A = client(); const O = client(); const O2 = client();
@@ -238,6 +238,30 @@ test('flusso completo', async (t) => {
     r = await A.get(`/api/canoni/sites/${ctx.site}?period=2026-08`);
     assert.equal(r.data.base, 1800);
     assert.equal(r.data.total, 345);
+  });
+  await t.test('catena di custodia e distinta a firma singola', async () => {
+    const pdf = await O.raw(`/api/reports/${ctx.rep}/custody.pdf`);
+    assert.equal(pdf.status, 200);
+    const buf = Buffer.from(await pdf.arrayBuffer());
+    assert.ok(buf.length > 5000);
+    (await import('node:fs')).writeFileSync('/tmp/custodia_test.pdf', buf);
+  });
+  await t.test('eliminazione: operatore solo bozze proprie, amministratore tutto con motivazione', async () => {
+    // rendiconto versato: l'operatore non può, l'admin senza motivo no, con motivo sì
+    assert.equal((await O.del(`/api/reports/${ctx.rep}`)).status, 400);
+    assert.equal((await A.del(`/api/reports/${ctx.rep}`)).status, 400);
+    const r = await A.del(`/api/reports/${ctx.rep}`, { reason: 'Rendiconto di prova da eliminare' });
+    assert.equal(r.status, 200, JSON.stringify(r.data));
+    assert.equal((await A.get(`/api/reports/${ctx.rep}`)).status, 404);
+    const audit = await A.get('/api/audit?action=REPORT_DELETE');
+    assert.equal(audit.data[0].data.reason, 'Rendiconto di prova da eliminare');
+    assert.ok(audit.data[0].data.snapshot.cash_counted != null, 'snapshot salvato');
+    // la NC collegata sopravvive senza rendiconto
+    assert.equal((await A.get(`/api/nc/${ctx.nc}`)).status, 200);
+    // bozza di un altro operatore: O2 non può
+    const b = await O.post('/api/reports', { site_id: ctx.site, report_date: '2026-09-21' });
+    assert.equal((await O2.del(`/api/reports/${b.data.id}`)).status, 403);
+    assert.equal((await O.del(`/api/reports/${b.data.id}`)).status, 200);
   });
   await t.test('isolamento tra aziende', async () => {
     const r = await A.get('/api/companies');

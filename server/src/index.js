@@ -88,6 +88,20 @@ app.use((err, req, res, _next) => {
   res.status(status).json({ error: status >= 500 ? 'Errore interno del server' : err.message, code: err.code, details: err.details });
 });
 
-migrate()
-  .then(() => app.listen(config.port, () => console.log(`TD Cash in ascolto su :${config.port}`)))
-  .catch((e) => { console.error(e); process.exit(1); });
+// Avvio con attesa del database: su alcuni hosting il database è pronto qualche secondo dopo l'app
+async function start() {
+  const deadline = Date.now() + 150_000;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await pool.query('SELECT 1');
+      break;
+    } catch (e) {
+      if (Date.now() > deadline) throw new Error(`Database non raggiungibile: ${e.message}`);
+      console.log(`[avvio] database non ancora pronto (tentativo ${attempt}): ${e.message}. Riprovo tra 5 s`);
+      await new Promise((r) => setTimeout(r, 5000));
+    }
+  }
+  await migrate();
+  app.listen(config.port, () => console.log(`TD Cash in ascolto su :${config.port}`));
+}
+start().catch((e) => { console.error(e); process.exit(1); });

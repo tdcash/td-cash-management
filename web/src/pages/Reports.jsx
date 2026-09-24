@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { useAuth } from '../auth.jsx';
-import { useApi, Loading, ErrorBox, StatusBadge, Empty, Field, Badge, Icon } from '../components/ui.jsx';
+import { useAuth, can } from '../auth.jsx';
+import { api } from '../api.js';
+import { useApi, Loading, ErrorBox, StatusBadge, Empty, Field, Badge, Icon, PromptModal, useToast } from '../components/ui.jsx';
 import { ScopeFilter, PeriodFilter, PRESETS } from '../components/filters.jsx';
 import { eur, itDate, weekday, STATUS } from '../format.js';
 import { qs } from '../api.js';
@@ -10,7 +11,11 @@ export default function Reports() {
   const nav = useNavigate();
   const { user } = useAuth();
   const [f, setF] = useState({ company_id: '', site_id: '', status: '', ...PRESETS['30g']() });
-  const { data, error } = useApi(`/reports${qs(f)}`);
+  const { data, error, reload } = useApi(`/reports${qs(f)}`);
+  const toast = useToast();
+  const admin = can(user, 'SUPERADMIN', 'ADMIN');
+  const [del, setDel] = useState(null);
+  const canDelete = (r) => admin || (r.status === 'DRAFT' && r.created_by === user.id);
   const tot = (k) => (data || []).reduce((a, r) => a + Number(r[k] || 0), 0);
   return (
     <div className="page">
@@ -54,7 +59,9 @@ export default function Reports() {
                   <td className="num">{eur(r.transfer_total)}</td>
                   <td className="num strong">{eur(r.day_total)}</td>
                   <td className={`num ${diff ? 'red' : 'muted'}`}>{diff == null ? '–' : eur(diff)}</td>
-                  <td>{r.open_nc > 0 && <Badge tone="red">{r.open_nc} NC</Badge>}</td>
+                  <td className="num" style={{ whiteSpace: 'nowrap' }}>{r.open_nc > 0 && <Badge tone="red">{r.open_nc} NC</Badge>}
+                    {canDelete(r) && <button className="iconbtn" title="Elimina rendiconto" aria-label="Elimina rendiconto" onClick={(e) => { e.stopPropagation(); setDel(r); }}><Icon name="trash" size={16} /></button>}
+                  </td>
                 </tr>
               );
             })}
@@ -66,6 +73,12 @@ export default function Reports() {
           </tr></tfoot>
         </table></div></div>
       )}
+      {del && (del.status === 'DRAFT' && !admin
+        ? <PromptModal title={`Elimina bozza ${del.site_name} del ${itDate(del.report_date)}`} label="Conferma scrivendo ELIMINA" confirmText="Elimina" danger minLength={7} onClose={() => setDel(null)}
+          onConfirm={async (v) => { if (v.toUpperCase() !== 'ELIMINA') throw new Error('Scrivi ELIMINA per confermare'); await api.del(`/reports/${del.id}`); toast('Bozza eliminata'); reload(); }} />
+        : <PromptModal title={`Elimina rendiconto ${del.site_name} del ${itDate(del.report_date)}`} label={`Stato: ${STATUS[del.status]?.label}${del.envelope_code ? `, busta ${del.envelope_code}` : ''}. Motivazione (resta nel registro attività)`}
+          placeholder="es. rendiconto duplicato, inserito sulla sede sbagliata" confirmText="Elimina definitivamente" danger minLength={5} onClose={() => setDel(null)}
+          onConfirm={async (reason) => { await api.del(`/reports/${del.id}`, { reason }); toast('Rendiconto eliminato'); reload(); }} />)}
     </div>
   );
 }

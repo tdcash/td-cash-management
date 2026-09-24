@@ -8,6 +8,7 @@ import { eur, itDate, itDateTime, weekday, today, CIRCUITS, NC_STATUS, SEVERITY 
 
 const BANKNOTES = [500, 200, 100, 50, 20, 10, 5];
 const r2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
+const STATUS_LABELS = Object.fromEntries([['DRAFT', 'Bozza'], ['CLOSED', 'Busta registrata'], ['PROCESSED', 'Distinta elaborata'], ['PICKED_UP', 'Ritirata'], ['DEPOSITED', 'Versata']]);
 const STEPS = [
   ['DRAFT', 'Conteggio'], ['CLOSED', 'Busta Mondialpol'], ['PROCESSED', 'Distinta'], ['PICKED_UP', 'Ritiro logistica'], ['DEPOSITED', 'Accredito banca'],
 ];
@@ -92,6 +93,7 @@ export default function ReportEdit() {
     next();
   };
   const openPdf = () => window.open(`/api/reports/${id}/pdf`, '_blank', 'noopener');
+  const openCustody = () => window.open(`/api/reports/${id}/custody.pdf`, '_blank', 'noopener');
 
   const stepIdx = STEPS.findIndex(([s]) => s === rep.status);
 
@@ -106,8 +108,9 @@ export default function ReportEdit() {
         <div className="row">
           {rep.has_pdf && <button className="btn ghost" onClick={openPdf}><Icon name="print" size={17} />Stampa distinta</button>}
           {admin && <button className="btn ghost" onClick={() => setModal('nc')}><Icon name="alert" size={17} />Segnala errore / NC</button>}
-          {editable && rep.slip_revision === 0 && (admin || rep.created_by_name === user.full_name) && (
-            <button className="btn danger" onClick={() => window.confirm('Eliminare la bozza?') && run(async () => { await api.del(`/reports/${id}`); nav('/rendiconti'); })}>Elimina bozza</button>
+          {['PROCESSED', 'PICKED_UP', 'DEPOSITED'].includes(rep.status) && <button className="btn ghost" onClick={openCustody}><Icon name="shield" size={17} />Catena di custodia</button>}
+          {(admin || (editable && rep.slip_revision === 0 && rep.created_by === user.id)) && (
+            <button className="btn danger" onClick={() => setModal('delete')}><Icon name="trash" size={16} />{editable ? 'Elimina bozza' : 'Elimina rendiconto'}</button>
           )}
         </div>
       </div>
@@ -120,8 +123,8 @@ export default function ReportEdit() {
 
       <ErrorBox error={err} />
       {rep.status !== 'DRAFT' && rep.status !== 'DEPOSITED' && <div className="alert info" style={{ marginBottom: 14 }}>
-        {rep.status === 'CLOSED' && 'Busta registrata. Elabora la distinta e stampala in doppia copia: una resta in sede, una va con la busta.'}
-        {rep.status === 'PROCESSED' && "Distinta pronta. Al ritiro registra il nome dell'operatore di logistica che firma la distinta."}
+        {rep.status === 'CLOSED' && 'Busta registrata. Elabora la distinta e stampala in doppia copia: firmi entrambe, una va in busta prima di sigillarla, una resta in sede.'}
+        {rep.status === 'PROCESSED' && 'Distinta pronta. Stampa il modulo Catena di custodia: al ritiro lo firmate tu e l\'operatore di logistica, poi registra qui il ritiro.'}
         {rep.status === 'PICKED_UP' && (admin ? "Busta consegnata alla logistica. Conferma l'accredito quando lo vedi sul conto." : "Busta consegnata alla logistica. L'amministrazione confermerà l'accredito.")}
       </div>}
 
@@ -236,6 +239,7 @@ export default function ReportEdit() {
               </>}
               {rep.status === 'PROCESSED' && <>
                 <button className="btn lg" style={{ background: 'var(--blue)', color: 'var(--jet)' }} onClick={() => setModal('pickup')}>{Number(rep.cash_to_deposit) > 0 ? 'Registra ritiro logistica →' : 'Nessuna busta da ritirare'}</button>
+                <button className="btn ghost" style={{ color: '#fff', background: 'transparent', borderColor: 'rgba(255,255,255,.3)' }} onClick={openCustody}>Stampa catena di custodia</button>
                 <button className="btn ghost" style={{ color: '#fff', background: 'transparent', borderColor: 'rgba(255,255,255,.3)' }} onClick={openPdf}>Ristampa distinta</button>
               </>}
               {admin && (rep.status === 'PICKED_UP' || (rep.status === 'PROCESSED' && Number(rep.cash_to_deposit) === 0)) && (
@@ -276,6 +280,12 @@ export default function ReportEdit() {
       {modal === 'deposit' && <DepositModal rep={rep} onClose={() => setModal(null)} onDone={async (diff) => { setModal(null); toast(diff ? 'Accredito confermato: aperta non conformità per la differenza' : 'Accredito confermato'); await reload(); }} />}
       {modal === 'reopen' && <PromptModal title="Riapri rendiconto" label="Motivo della riapertura (resta nel tracciamento)" confirmText="Riapri" danger minLength={5}
         onClose={() => setModal(null)} onConfirm={async (reason) => { await api.post(`/reports/${id}/reopen`, { reason }); toast('Rendiconto riaperto'); await reload(); }} />}
+      {modal === 'delete' && (editable && !admin
+        ? <PromptModal title="Elimina bozza" label="Conferma scrivendo ELIMINA" confirmText="Elimina" danger minLength={7} onClose={() => setModal(null)}
+          onConfirm={async (v) => { if (v.toUpperCase() !== 'ELIMINA') throw new Error('Scrivi ELIMINA per confermare'); await api.del(`/reports/${id}`); toast('Bozza eliminata'); nav('/rendiconti'); }} />
+        : <PromptModal title="Elimina rendiconto" label={`Stato: ${STATUS_LABELS[rep.status] || rep.status}${rep.envelope_code ? `, busta ${rep.envelope_code}` : ''}. Motivazione (resta nel registro attività)`}
+          placeholder="es. rendiconto duplicato, inserito sulla sede sbagliata" confirmText="Elimina definitivamente" danger minLength={editable ? 1 : 5} onClose={() => setModal(null)}
+          onConfirm={async (reason) => { await api.del(`/reports/${id}`, { reason }); toast('Rendiconto eliminato'); nav('/rendiconti'); }} />)}
       {modal === 'nc' && <NcCreateModal report={rep} onClose={() => setModal(null)} onDone={async (ncId) => { setModal(null); toast(`Aperta non conformità #${ncId}`); await reload(); }} />}
     </div>
   );
@@ -337,7 +347,7 @@ function PickupModal({ id, needsEnvelope, onClose, onDone }) {
         <Field label="Nome e cognome operatore logistica"><input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="es. Mario Rossi (Mondialpol)" /></Field>
         <Field label="Data e ora ritiro"><input type="datetime-local" value={at} max={now} onChange={(e) => setAt(e.target.value)} /></Field>
       </div>
-      <p className="small muted">L'operatore firma entrambe le copie della distinta. La copia sede resta archiviata in sede.</p>
+      <p className="small muted">L'operatore firma il modulo Catena di custodia insieme a chi consegna la busta. Il modulo firmato resta in sede.</p>
     </Modal>
   );
 }
