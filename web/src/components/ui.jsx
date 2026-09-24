@@ -22,6 +22,17 @@ export function ToastProvider({ children }) {
 }
 export const useToast = () => useContext(ToastCtx);
 
+// ---------- Indicatore di attività ----------
+export function BusyBar() {
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    const h = (e) => setN(e.detail);
+    window.addEventListener('td:busy', h);
+    return () => window.removeEventListener('td:busy', h);
+  }, []);
+  return <div className={`busybar ${n > 0 ? 'on' : ''}`} role="progressbar" aria-hidden={n === 0}><i /></div>;
+}
+
 // ---------- Data loading ----------
 export function useApi(url, deps = []) {
   const [state, setState] = useState({ data: null, error: null, loading: true });

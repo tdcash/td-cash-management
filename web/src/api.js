@@ -3,8 +3,25 @@ export class ApiError extends Error {
   constructor(status, message, code) { super(message); this.status = status; this.code = code; }
 }
 
+// Indicatore globale di attività: ogni richiesta in corso accende la barra e blocca i doppi clic
+let pending = 0;
+const setBusy = (delta) => {
+  pending = Math.max(0, pending + delta);
+  document.documentElement.classList.toggle('is-busy', pending > 0);
+  window.dispatchEvent(new CustomEvent('td:busy', { detail: pending }));
+};
+
 async function request(method, url, body) {
   const isForm = body instanceof FormData;
+  setBusy(1);
+  try {
+    return await doRequest(method, url, body, isForm);
+  } finally {
+    setBusy(-1);
+  }
+}
+
+async function doRequest(method, url, body, isForm) {
   const res = await fetch(`/api${url}`, {
     method,
     credentials: 'same-origin',

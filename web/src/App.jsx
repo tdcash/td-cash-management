@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth, can } from './auth.jsx';
-import { ToastProvider, Icon, Loading, useApi } from './components/ui.jsx';
+import { ToastProvider, Icon, Loading, useApi, BusyBar } from './components/ui.jsx';
 import { ROLE } from './format.js';
 import Login from './pages/Login.jsx';
 import Onboarding from './pages/Onboarding.jsx';
@@ -120,6 +120,7 @@ function Gate() {
 export default function App() {
   return (
     <ToastProvider>
+      <BusyBar />
       <AuthProvider>
         <Gate />
       </AuthProvider>

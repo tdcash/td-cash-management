@@ -287,10 +287,17 @@ test('flusso completo', async (t) => {
     assert.equal(r.data.status, 'RITIRATO');
     r = await A.post(`/api/deposits/${ctx.dep}/bank`, { amount: 200, date: '2026-09-24' });
     assert.equal(r.data.status, 'ACCREDITATO');
-    assert.equal((await A.del(`/api/deposits/${ctx.dep}`, { reason: 'prova' })).status, 400, 'accreditato non si elimina');
+    assert.equal((await A.del(`/api/deposits/${ctx.dep}`, { reason: 'x' })).status, 400, 'senza motivazione no');
     r = await A.post(`/api/deposits/${ctx.dep}/undo`, { reason: 'Accredito registrato per errore' });
     assert.equal(r.data.status, 'RITIRATO');
     assert.equal((await O.get('/api/deposits')).status, 403, 'operatore non vede i versamenti');
+    // eliminazione di un versamento accreditato: consentita agli amministratori con motivazione, i rendiconti tornano in cassaforte
+    await A.post(`/api/deposits/${ctx.dep}/bank`, { amount: 200, date: '2026-09-24' });
+    r = await A.del(`/api/deposits/${ctx.dep}`, { reason: 'Versamento registrato due volte' });
+    assert.equal(r.status, 200, JSON.stringify(r.data));
+    assert.equal((await A.get(`/api/reports/${id2}`)).data.status, 'VERIFIED');
+    r = await A.get(`/api/deposits/safe?company_id=${ctx.company}`);
+    assert.equal(r.data.total, 532.4);
   });
   await t.test('PDF del gestionale: caricamento e lettura importi', async () => {
     const r0 = await O.post('/api/reports', { site_id: ctx.site, report_date: '2026-09-19' });

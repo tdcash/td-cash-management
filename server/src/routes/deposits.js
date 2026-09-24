@@ -167,15 +167,15 @@ r.post('/:id/undo', ah(async (req, res) => {
 r.delete('/:id', ah(async (req, res) => {
   const d = await loadDeposit(req, Number(req.params.id));
   const reason = String(req.body?.reason || '').trim();
-  if (d.status === 'ACCREDITATO') throw bad('Versamento già accreditato: annulla prima l\'accredito');
   if (reason.length < 5) throw bad('Indica la motivazione (almeno 5 caratteri)');
+  const snapshot = await fullDeposit(d.id);
   await tx(async (c) => {
     const ids = (await c.query('SELECT id FROM cash_reports WHERE deposit_id=$1', [d.id])).rows.map((x) => x.id);
     await c.query(`UPDATE cash_reports SET status='VERIFIED', deposit_id=NULL, updated_at=now() WHERE deposit_id=$1`, [d.id]);
     for (const id of ids) await c.query(`INSERT INTO report_events (report_id, event, detail, user_id) VALUES ($1,'VERSAMENTO_ANNULLATO',$2,$3)`, [id, `Versamento ${d.number} eliminato: ${reason}. Il rendiconto torna in cassaforte`, req.user.id]);
     await c.query('DELETE FROM cash_deposits WHERE id=$1', [d.id]);
   });
-  await audit(req, 'DEPOSIT_DELETE', 'deposit', d.id, { number: d.number, total: d.total_amount, reason });
+  await audit(req, 'DEPOSIT_DELETE', 'deposit', d.id, { number: d.number, total: d.total_amount, status: d.status, reason, snapshot: { ...snapshot, events: undefined } });
   res.json({ ok: true });
 }));
 

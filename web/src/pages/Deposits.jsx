@@ -140,7 +140,7 @@ function DepositDetail({ id, onClose, onChanged }) {
     <Modal wide title={`Versamento ${d.number}`} onClose={onClose} footer={<>
       <a className="btn ghost" href={`/api/deposits/${d.id}/pdf`} target="_blank" rel="noopener"><Icon name="print" size={16} />Distinta e catena di custodia</a>
       <div className="spacer" />
-      {d.status !== 'ACCREDITATO' && <button className="btn danger" onClick={() => setModal('delete')}>Elimina versamento</button>}
+      <button className="btn danger" onClick={() => setModal('delete')}>Elimina versamento</button>
       {d.status !== 'PREPARATO' && <button className="btn ghost" onClick={() => setModal('undo')}>Annulla ultimo passaggio</button>}
       {d.status === 'PREPARATO' && <button className="btn" onClick={() => setModal('pickup')}>Registra ritiro portavalori</button>}
       {d.status === 'RITIRATO' && <button className="btn" onClick={() => setModal('bank')}>Conferma accredito in banca</button>}
@@ -162,7 +162,7 @@ function DepositDetail({ id, onClose, onChanged }) {
       {modal === 'pickup' && <PickupModal onClose={() => setModal(null)} onConfirm={(b) => act(() => api.post(`/deposits/${d.id}/pickup`, b), 'Ritiro registrato').then(() => setModal(null))} />}
       {modal === 'bank' && <BankModal total={d.total_amount} onClose={() => setModal(null)} onConfirm={(b) => act(() => api.post(`/deposits/${d.id}/bank`, b), 'Accredito confermato').then(() => setModal(null))} />}
       {modal === 'undo' && <PromptModal title="Annulla ultimo passaggio" label="Motivazione" confirmText="Annulla passaggio" danger onClose={() => setModal(null)} onConfirm={(reason) => act(() => api.post(`/deposits/${d.id}/undo`, { reason }), 'Passaggio annullato')} />}
-      {modal === 'delete' && <PromptModal title="Elimina versamento" label="I rendiconti tornano in cassaforte. Motivazione" confirmText="Elimina" danger onClose={() => setModal(null)} onConfirm={async (reason) => { await api.del(`/deposits/${d.id}`, { reason }); toast('Versamento eliminato'); onChanged(); onClose(); }} />}
+      {modal === 'delete' && <PromptModal title="Elimina versamento" label={`${d.status === 'ACCREDITATO' ? 'Versamento già accreditato in banca. ' : ''}I rendiconti tornano in cassaforte. Motivazione (resta nel registro attività)`} confirmText="Elimina" danger onClose={() => setModal(null)} onConfirm={async (reason) => { await api.del(`/deposits/${d.id}`, { reason }); toast('Versamento eliminato'); onChanged(); onClose(); }} />}
     </Modal>
   );
 }
