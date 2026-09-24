@@ -1,0 +1,44 @@
+# Deploy di prova su Render (https://render.com): New > Blueprint > collega il repository.
+# Crea database PostgreSQL e app in un colpo. Poi imposta le variabili marcate sync: false dal pannello.
+services:
+  - type: web
+    name: td-cash
+    runtime: docker
+    plan: starter
+    region: frankfurt
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "3000"
+      - key: BASE_URL
+        value: https://td-cash.onrender.com   # sostituire con l'URL assegnato, poi con https://cash.toscanadiagnostica.it
+      - key: DATABASE_URL
+        fromDatabase:
+          name: td-cash-db
+          property: connectionString
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: SESSION_HOURS
+        value: "10"
+      - key: REQUIRE_TOTP_FOR_ADMINS
+        value: "true"
+      - key: SEED_SUPERADMIN_EMAIL
+        value: francesco.epifani@toscanadiagnostica.it
+      - key: SEED_SUPERADMIN_NAME
+        value: Francesco Epifani
+      - key: SEED_SUPERADMIN_PASSWORD
+        sync: false   # inserire a mano nel pannello (min 12 caratteri): richiesta al primo accesso, poi da cambiare
+      - key: ENTRA_TENANT_ID
+        sync: false
+      - key: ENTRA_CLIENT_ID
+        sync: false
+      - key: ENTRA_CLIENT_SECRET
+        sync: false
+databases:
+  - name: td-cash-db
+    plan: basic-256mb
+    region: frankfurt
+    databaseName: cash
+    user: cash

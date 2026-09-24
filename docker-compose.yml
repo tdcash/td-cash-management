@@ -1,0 +1,70 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: cash
+      POSTGRES_USER: cash
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?imposta DB_PASSWORD nel file .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./backup:/backup
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cash -d cash"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      BASE_URL: https://${DOMAIN:-cash.toscanadiagnostica.it}
+      DATABASE_URL: postgres://cash:${DB_PASSWORD}@db:5432/cash
+      SESSION_SECRET: ${SESSION_SECRET:?imposta SESSION_SECRET nel file .env}
+      SESSION_HOURS: ${SESSION_HOURS:-10}
+      REQUIRE_TOTP_FOR_ADMINS: ${REQUIRE_TOTP_FOR_ADMINS:-true}
+      SEED_SUPERADMIN_EMAIL: ${SEED_SUPERADMIN_EMAIL:-}
+      SEED_SUPERADMIN_NAME: ${SEED_SUPERADMIN_NAME:-Super Amministratore}
+      SEED_SUPERADMIN_PASSWORD: ${SEED_SUPERADMIN_PASSWORD:-}
+      ENTRA_TENANT_ID: ${ENTRA_TENANT_ID:-}
+      ENTRA_CLIENT_ID: ${ENTRA_CLIENT_ID:-}
+      ENTRA_CLIENT_SECRET: ${ENTRA_CLIENT_SECRET:-}
+
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on: [app]
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:-cash.toscanadiagnostica.it}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    depends_on: [db]
+    environment:
+      PGPASSWORD: ${DB_PASSWORD}
+    volumes:
+      - ./backup:/backup
+    entrypoint: >
+      sh -c 'while true; do
+        pg_dump -h db -U cash -d cash -Fc -f /backup/cash_$(date +%%Y%%m%%d_%%H%%M).dump &&
+        find /backup -name "cash_*.dump" -mtime +30 -delete;
+        sleep 86400; done'
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:
