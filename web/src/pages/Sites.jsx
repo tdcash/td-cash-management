@@ -89,21 +89,28 @@ export default function Sites() {
             <div className="small strong muted" style={{ marginBottom: 6 }}>Giorni operativi (attesi in rendicontazione)</div>
             <div className="row">{DAYS.map((d, i) => <label key={d} className="f inline"><input type="checkbox" checked={edit.operating_days[i] === '1'} onChange={(e) => { const a = edit.operating_days.split(''); a[i] = e.target.checked ? '1' : '0'; setEdit({ ...edit, operating_days: a.join('') }); }} />{d}</label>)}</div>
             <div className="small strong muted" style={{ margin: '12px 0 6px' }}>Orari della sede <span className="muted" style={{ fontWeight: 400 }}>(il sollecito per rendiconto mancante parte 60 minuti dopo la chiusura)</span></div>
-            <table className="t hours"><thead><tr><th>Giorno</th><th>Apertura</th><th>Chiusura</th><th /></tr></thead><tbody>
+            {(() => { const firstK = DAYS.map((_, i) => String(i + 1)).find((k) => { const h = (edit.hours || {})[k]; return h && (h.open || h.close); }); const first = firstK ? edit.hours[firstK] : null; return (<>
+            <table className="t hours" style={{ width: 'auto' }}><thead><tr><th>Giorno</th><th>Apertura</th><th>Chiusura</th></tr></thead><tbody>
               {DAYS.map((d, i) => { const k = String(i + 1); const h = (edit.hours || {})[k] || {}; const on = edit.operating_days[i] === '1'; const setH = (patch) => setEdit({ ...edit, hours: { ...(edit.hours || {}), [k]: { ...h, ...patch } } }); return (
                 <tr key={d} style={{ opacity: on ? 1 : .45 }}>
                   <td>{d}</td>
                   <td><input type="time" disabled={!on} value={h.open || ''} onChange={(e) => setH({ open: e.target.value })} /></td>
                   <td><input type="time" disabled={!on} value={h.close || ''} onChange={(e) => setH({ close: e.target.value })} /></td>
-                  <td className="num">{i === 0 && on && (h.open || h.close) && <button className="btn sm ghost" type="button" onClick={() => { const all = {}; DAYS.forEach((_, j) => { if (edit.operating_days[j] === '1') all[String(j + 1)] = { open: h.open || null, close: h.close || null }; }); setEdit({ ...edit, hours: all }); }}>Copia su tutti i giorni</button>}</td>
                 </tr>); })}
             </tbody></table>
+            <div className="row" style={{ marginTop: 6 }}>
+              <button className="btn sm ghost" type="button" disabled={!first} onClick={() => { const all = {}; DAYS.forEach((_, j) => { if (edit.operating_days[j] === '1') all[String(j + 1)] = { open: first.open || null, close: first.close || null }; }); setEdit({ ...edit, hours: all }); }}>Copia per tutti i giorni</button>
+              {first && <span className="small muted">applica {first.open || '–'} / {first.close || '–'} a tutti i giorni operativi</span>}
+            </div>
+            </>); })()}
             <Field label="Note sugli orari" help="es. chiusura pomeridiana, orari estivi"><input value={edit.hours_note} onChange={(e) => setEdit({ ...edit, hours_note: e.target.value })} /></Field>
           </div>
-          <h3 style={{ margin: '18px 0 8px' }}>Tipo di sede</h3>
-          <div className="row" style={{ gap: 18 }}>
-            <label className="f inline"><input type="radio" name="ownership" checked={edit.ownership === 'OSPITATA'} onChange={() => setEdit({ ...edit, ownership: 'OSPITATA' })} />Sede ospitata in struttura terza (corner con royalty)</label>
-            <label className="f inline"><input type="radio" name="ownership" checked={edit.ownership === 'PROPRIA'} onChange={() => setEdit({ ...edit, ownership: 'PROPRIA' })} />Sede di proprietà (nessuna royalty)</label>
+          <div className="row" style={{ margin: '18px 0 8px', alignItems: 'center', gap: 14 }}>
+            <h3 style={{ margin: 0 }}>Tipo di sede</h3>
+            <div className="seg" role="radiogroup">
+              <label className={edit.ownership === 'OSPITATA' ? 'on' : ''}><input type="radio" name="ownership" checked={edit.ownership === 'OSPITATA'} onChange={() => setEdit({ ...edit, ownership: 'OSPITATA' })} />Ospitata (con royalty)</label>
+              <label className={edit.ownership === 'PROPRIA' ? 'on' : ''}><input type="radio" name="ownership" checked={edit.ownership === 'PROPRIA'} onChange={() => setEdit({ ...edit, ownership: 'PROPRIA' })} />Di proprietà</label>
+            </div>
           </div>
           {edit.ownership === 'PROPRIA' ? <p className="small muted" style={{ marginTop: 8 }}>La sede non compare nella pagina Royalty di sede e non genera report per strutture ospitanti.</p> : <>
           <h3 style={{ margin: '14px 0 8px' }}>Royalty alla struttura ospitante</h3>

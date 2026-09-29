@@ -112,7 +112,14 @@ table.t { width: 100%; border-collapse: collapse; }
 label.f { display: flex; flex-direction: column; gap: 5px; font-size: 12px; font-weight: 650; color: var(--muted); }
 label.f.inline { flex-direction: row; align-items: center; gap: 8px; color: var(--ink); font-weight: 550; font-size: 13.5px; }
 input, select, textarea { font: inherit; color: var(--ink); background: #fff; border: 1px solid #c9d7da; border-radius: 8px; padding: 8px 10px; min-height: 38px; width: 100%; }
-input[type=checkbox] { width: 16px; height: 16px; min-height: 0; accent-color: var(--teal); }
+input[type=checkbox], input[type=radio] { width: 16px; height: 16px; min-height: 0; accent-color: var(--teal); padding: 0; }
+.seg { display: inline-flex; border: 1px solid #c9d7da; border-radius: 8px; overflow: hidden; }
+.seg label { display: flex; align-items: center; gap: 6px; padding: 6px 12px; font-size: 13px; font-weight: 600; color: var(--muted); cursor: pointer; border-right: 1px solid #c9d7da; }
+.seg label:last-child { border-right: 0; }
+.seg label.on { background: var(--teal); color: #fff; }
+.seg input { display: none; }
+table.hours input[type=time] { width: 108px; min-height: 32px; padding: 4px 8px; font-size: 13px; }
+table.hours td, table.hours th { padding: 4px 8px; }
 textarea { min-height: 80px; resize: vertical; }
 input:focus, select:focus, textarea:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 3px rgba(113, 177, 189, .28); }
 input:disabled, select:disabled, textarea:disabled { background: #f3f6f6; color: #6b7c80; }
@@ -263,6 +270,5 @@ html.is-busy .btn:focus:not(.link)::after { content: ''; width: 12px; height: 12
   .shell { display: block; }
 }
 
-table.hours input[type=time] { width: 120px; }
 th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
 th.sortable:hover { color: var(--teal); }
