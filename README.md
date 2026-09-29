@@ -6,7 +6,9 @@ Webapp per la rendicontazione giornaliera degli incassi, il controllo del flusso
 
 Ciclo del rendiconto (v4): l'operatore di sede conta il contante per taglio (banconote e monete), registra POS e bonifici, carica il PDF di chiusura cassa del gestionale (importi letti in automatico e confermati), registra la busta Mondialpol e stampa la distinta a sua firma. L'amministratore di sede registra l'Operazione logistica (riceve la busta dalla logistica e la mette in cassaforte, con nome dell'operatore), poi il Riconteggio e verifica, che chiude il ciclo: le differenze aprono in automatico una segnalazione. Il modulo Catena di custodia accompagna la busta fino all'Area Finance. Il contante verificato è versabile al portavalori a livello azienda, anche in parte: il versamento raccoglie N rendiconti verificati, ha le sue buste Mondialpol, distinta e catena di custodia, ritiro del portavalori e conferma dell'accredito. Ogni passaggio si può annullare dall'amministratore con motivazione tracciata.
 
-Profili: super amministratore, amministratore (di azienda/sede), operatore, partner (struttura ospitante: vede solo statistiche incassi e royalty di sede confermate delle sue sedi). Le royalty di sede si confermano dall'amministratore a inizio del mese successivo; da quel momento i valori sono congelati e il partner stampa il report per fatturare.
+Sezioni per fase (v6): Rendicontazione (Nuovo rendiconto, Rendiconti), Revisione e approvazione (ricezione buste, riconteggio, Errori e NC, Controllo giornaliero), Finance (Cassaforte, Versamento al portavalori, Conferma dell'accredito). Ogni sezione è visibile solo ai profili che la eseguono.
+
+Profili: super amministratore; amministratore di sede (tutto il processo della propria azienda); cassiere (revisione e approvazione dei rendiconti delle sedi assegnate: operazione logistica, riconteggio e verifica, segnalazioni; non compila rendiconti né entra in cassaforte); Finance Specialist (cassaforte, versamenti e accrediti su tutta l'azienda; rendiconti in sola lettura; non elimina versamenti); operatore (compila i rendiconti delle sedi assegnate); partner (struttura ospitante: statistiche incassi e royalty confermate delle sue sedi). L'anagrafica Azienda censisce uno o più conti correnti: se presenti, la conferma dell'accredito richiede il conto su cui è arrivato il bonifico, con riferimento contabile facoltativo. Le royalty di sede si confermano dall'amministratore a inizio del mese successivo; da quel momento i valori sono congelati e il partner stampa il report per fatturare.
 
 Rendicontazione per sede e per giorno: conteggio del contante per taglio, registrazione degli scontrini POS per circuito e dei bonifici con CRO, sottrazione del fondo cassa, quadratura con il gestionale. Registrazione della busta Mondialpol con codice a barre inserito due volte (lettore o fotocamera), elaborazione della distinta in PDF su carta intestata con il codice a barre e i due riquadri firma (chi elabora, operatore di logistica che ritira), stampata in doppia copia. Il flusso prosegue con ritiro e conferma dell'accredito in banca; una differenza tra distinta e accredito apre in automatico un errore.
 
@@ -50,15 +52,36 @@ Aggiornamento: `git pull && docker compose up -d --build`. Le migrazioni si appl
 
 Ripristino di un backup: `docker compose exec -T db pg_restore -U cash -d cash --clean /backup/<file>.dump`.
 
-## Accesso Microsoft 365
+## Comunicazioni (v5)
 
-1. In Microsoft Entra ID, App registrations, New registration: nome "TD Cash Management", account solo di questa organizzazione, redirect URI (Web) `https://cash.toscanadiagnostica.it/api/auth/entra/callback`.
-2. Certificates & secrets: crea un client secret e annota il valore.
-3. Token configuration: aggiungi il claim opzionale `email` per l'ID token.
-4. Copia Tenant ID, Client ID e secret in .env (ENTRA_*), poi `docker compose up -d`.
-5. Ogni utente va comunque censito nell'app con la stessa email dell'account Office 365 e metodo di accesso "Microsoft 365" o "Microsoft 365 o password". Gli esterni all'organizzazione usano email e password.
+Controllo giornaliero: pagina dedicata per gli amministratori con lo stato di ogni sede per il giorno scelto (rendiconto inserito, in bozza, mancante, sede chiusa per calendario). Ogni mattina all'ora impostata (default 10:00) il sistema verifica il giorno precedente, invia un sollecito all'email di sede delle sedi mancanti e un riepilogo agli amministratori dell'azienda. Solleciti manuali per singola sede o per tutte le mancanti, comunicazioni libere a sede, struttura ospitante e operatori, con registro di tutti gli invii (esito, destinatari, allegato). Le segnalazioni aperte e le note notificano la sede; la conferma mensile delle royalty invia in automatico il report PDF all'email della struttura ospitante. Se l'invio non è configurato, tutto resta comunque registrato nel registro invii.
 
-La registrazione dell'app richiede un Global Administrator del tenant.
+Le email di sede e della struttura ospitante si impostano nell'anagrafica sede. Il controllo automatico richiede un'istanza sempre attiva (su Render: piano a pagamento, non il piano gratuito che dorme).
+
+## Microsoft 365: accesso e invio email
+
+Una sola registrazione app in Entra ID serve per entrambe le cose. Occorre un Global Administrator del tenant.
+
+Accesso (login con account Office 365):
+
+1. Microsoft Entra ID > App registrations > New registration: nome "TD Cash Management", account solo di questa organizzazione (single tenant), piattaforma Web, redirect URI `https://cash.toscanadiagnostica.it/api/auth/entra/callback` (aggiungere anche l'URL temporaneo, es. `https://td-cash.onrender.com/api/auth/entra/callback`, finché il dominio non è attivo).
+2. Certificates & secrets > New client secret (durata 24 mesi): copiare subito il valore, non si rivede più.
+3. Token configuration > Add optional claim > ID token > `email`.
+4. Overview: copiare Directory (tenant) ID e Application (client) ID.
+5. Variabili d'ambiente dell'app (Render > Environment, oppure .env): `ENTRA_TENANT_ID`, `ENTRA_CLIENT_ID`, `ENTRA_CLIENT_SECRET`, e `BASE_URL` uguale all'indirizzo pubblico. Riavviare.
+6. Ogni utente va censito nell'app (Utenti) con la stessa email dell'account Office 365 e metodo di accesso "Microsoft 365" o "Microsoft 365 o password". Gli esterni all'organizzazione (partner, strutture ospitanti) usano email e password.
+
+Invio email dalla casella amministrazione@toscanadiagnostica.it (Microsoft Graph, nessuna password SMTP):
+
+1. Nella stessa registrazione app: API permissions > Add a permission > Microsoft Graph > Application permissions > `Mail.Send` > Grant admin consent.
+2. Limitare l'app alla sola casella mittente (consigliato, PowerShell Exchange Online):
+   `New-DistributionGroup -Name "TD Cash Mittenti" -Type Security -Members amministrazione@toscanadiagnostica.it`
+   `New-ApplicationAccessPolicy -AppId <client id> -PolicyScopeGroupId "TD Cash Mittenti" -AccessRight RestrictAccess -Description "TD Cash Management: solo casella amministrazione"`
+   `Test-ApplicationAccessPolicy -Identity amministrazione@toscanadiagnostica.it -AppId <client id>` deve rispondere AccessCheckResult: Granted.
+3. Variabile `GRAPH_SENDER=amministrazione@toscanadiagnostica.it` (già in render.yaml). Nessun'altra configurazione: l'app usa lo stesso tenant, client id e secret del login.
+4. Verifica: Impostazioni > Comunicazioni email > "Invia una email di prova". Lo stato "attivo · Microsoft 365" conferma la configurazione; l'esito di ogni invio è nel registro.
+
+Alternativa SMTP (per un provider diverso da Microsoft 365, che ha dismesso l'autenticazione SMTP di base): `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`. Se sono presenti sia Graph sia SMTP prevale Graph.
 
 ## Sviluppo locale
 
@@ -85,12 +108,15 @@ Canali digitali: `data; canale; importo_lordo; quota_franchisor; sede; riferimen
 Tutte sotto /api, autenticazione via cookie di sessione, header `X-Requested-With: td-cash` obbligatorio sulle richieste che modificano dati.
 
 - auth: login, totp, logout, me, change-password, totp/setup, totp/enable, entra/login, entra/callback
-- companies, sites, users, settings, audit
+- companies, companies/:id/bank-accounts, sites, users, settings, audit
 - reports: CRUD bozza, envelope, unlock, process, pdf, pickup, deposit, reopen
 - nc: elenco, dettaglio, creazione, messages, close, reopen
 - stats: summary, today, export.csv
 - imports: transactions, reconcile, reconciliation, channels
 - royalty: contracts, preview, statements, statements/:id/pdf, statements/:id/status, sepa/batches, sepa/batches/:id/xml
+- canoni (royalty di sede): summary, sites/:id, sites/:id/pdf, sites/:id/confirm, sites/:id/unconfirm
+- deposits: safe, elenco (filtro status), creazione, pdf, pickup, bank (conto corrente e riferimento), undo, delete (solo amministratori)
+- comms: daily, daily/alert, daily/run, message, log, test
 
 ## Cose da decidere prima del go-live
 

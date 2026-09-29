@@ -153,7 +153,7 @@ r.post('/statements', requireRole('SUPERADMIN'), ah(async (req, res) => {
 }));
 
 r.get('/statements', ah(async (req, res) => {
-  if (req.user.role === 'OPERATOR') return res.json([]);
+  if (!['SUPERADMIN', 'ADMIN'].includes(req.user.role)) return res.json([]);
   const P = new Params();
   const where = [isSuper(req.user) ? 'TRUE' : `st.company_id = ${P.add(req.user.company_id)}`];
   if (req.query.company_id) where.push(`st.company_id = ${P.add(Number(req.query.company_id))}`);
@@ -178,7 +178,7 @@ r.get('/statements/:id/pdf', ah(async (req, res) => {
   const st = await one(`SELECT st.*, k.revenue_base, k.marketing_fee_pct, k.invoice_vat_rate FROM royalty_statements st
     JOIN royalty_contracts k ON k.id=st.contract_id WHERE st.id=$1`, [Number(req.params.id)]);
   if (!st) throw notFound();
-  if (req.user.role === 'OPERATOR') throw notFound();
+  if (!['SUPERADMIN', 'ADMIN'].includes(req.user.role)) throw notFound();
   assertCompany(req.user, st.company_id);
   const franchisor = await one('SELECT * FROM companies WHERE is_franchisor ORDER BY id LIMIT 1');
   const debtor = await one('SELECT * FROM companies WHERE id=$1', [st.company_id]);

@@ -1,11 +1,11 @@
-# Deploy di PROVA GRATUITA su Render: New > Blueprint > collega il repository.
-# Piano free: l'app si addormenta dopo 15 minuti di inattivita' (primo accesso lento), il database gratuito scade dopo 30 giorni.
-# Per la produzione: plan: starter (web) e plan: basic-256mb (database), poi Sync Blueprint.
+# Deploy su Render: New > Blueprint > collega il repository.
+# Piani a pagamento: l'app resta sempre accesa (niente attesa al primo accesso) e il database e' persistente con backup.
+# Per una prova gratuita: plan: free su entrambi (app in sospensione dopo 15 minuti, database cancellato dopo 30 giorni).
 services:
   - type: web
     name: td-cash
     runtime: docker
-    plan: free
+    plan: starter
     region: frankfurt
     healthCheckPath: /api/health
     envVars:
@@ -37,9 +37,11 @@ services:
         value: ""
       - key: ENTRA_CLIENT_SECRET
         value: ""
+      - key: GRAPH_SENDER
+        value: amministrazione@toscanadiagnostica.it   # casella mittente delle comunicazioni (via Microsoft Graph, richiede Mail.Send)
 databases:
   - name: td-cash-db
-    plan: free
+    plan: basic-256mb
     region: frankfurt
     databaseName: cash
     user: cash

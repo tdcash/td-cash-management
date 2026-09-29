@@ -1,13 +1,13 @@
 import { Router } from 'express';
 import { many, one } from '../db.js';
 import { ah, todayRome, getSetting } from '../lib/util.js';
-import { Params, siteScope } from '../lib/access.js';
+import { Params, siteScope, companyWide } from '../lib/access.js';
 
 const r = Router();
 
 function channelTotals(req, from, to) {
   const P = new Params();
-  const w = [req.user.role === 'SUPERADMIN' ? 'TRUE' : req.user.role === 'ADMIN' ? `cr.company_id = ${P.add(req.user.company_id)}` : 'FALSE'];
+  const w = [req.user.role === 'SUPERADMIN' ? 'TRUE' : companyWide(req.user) ? `cr.company_id = ${P.add(req.user.company_id)}` : 'FALSE'];
   if (req.query.company_id) w.push(`cr.company_id = ${P.add(Number(req.query.company_id))}`);
   if (req.query.site_id) w.push(`cr.site_id = ${P.add(Number(req.query.site_id))}`);
   w.push(`cr.rev_date BETWEEN ${P.add(from)} AND ${P.add(to)}`);
@@ -87,7 +87,7 @@ r.get('/summary', ah(async (req, res) => {
     ORDER BY r.report_date LIMIT 300`, P3.values);
 
   const P4 = new Params();
-  const ncScope = req.user.role === 'SUPERADMIN' ? 'TRUE' : req.user.role === 'ADMIN'
+  const ncScope = req.user.role === 'SUPERADMIN' ? 'TRUE' : companyWide(req.user)
     ? `company_id = ${P4.add(req.user.company_id)}` : `site_id = ANY(${P4.add(req.user.site_ids || [])}::int[])`;
   const nc = await one(`SELECT count(*) FILTER (WHERE status='APERTA')::int AS open, count(*) FILTER (WHERE status='RISPOSTA')::int AS answered,
       count(*) FILTER (WHERE status<>'CHIUSA' AND due_date < current_date)::int AS overdue FROM nonconformities WHERE ${ncScope}`, P4.values);

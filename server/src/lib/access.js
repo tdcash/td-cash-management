@@ -56,12 +56,22 @@ export const requireRole = (...roles) => (req, _res, next) =>
 
 export const isSuper = (u) => u.role === 'SUPERADMIN';
 export const isAdmin = (u) => u.role === 'ADMIN' || u.role === 'SUPERADMIN';
+// Fasi del processo: chi revisiona e approva i rendiconti (operazione logistica, riconteggio, NC)
+export const canReview = (u) => ['SUPERADMIN', 'ADMIN', 'CASSIERE'].includes(u?.role);
+// chi gestisce cassaforte, versamenti e accrediti
+export const canFinance = (u) => ['SUPERADMIN', 'ADMIN', 'FINANCE'].includes(u?.role);
+// chi compila i rendiconti di cassa
+export const canCount = (u) => ['SUPERADMIN', 'ADMIN', 'OPERATOR'].includes(u?.role);
+// ruoli con perimetro sull'intera azienda (gli altri sono limitati alle sedi assegnate)
+export const companyWide = (u) => ['ADMIN', 'FINANCE'].includes(u?.role);
+export const REVIEW_ROLES = ['SUPERADMIN', 'ADMIN', 'CASSIERE'];
+export const FINANCE_ROLES = ['SUPERADMIN', 'ADMIN', 'FINANCE'];
 
 // Clausola SQL che limita le sedi visibili all'utente (alias della tabella sites)
-// OPERATOR e PARTNER vedono solo le sedi assegnate
+// OPERATOR, CASSIERE e PARTNER vedono solo le sedi assegnate; ADMIN e FINANCE tutta l'azienda
 export function siteScope(user, P, alias = 's') {
   if (user.role === 'SUPERADMIN') return 'TRUE';
-  if (user.role === 'ADMIN') return `${alias}.company_id = ${P.add(user.company_id)}`;
+  if (companyWide(user)) return `${alias}.company_id = ${P.add(user.company_id)}`;
   return `${alias}.id = ANY(${P.add(user.site_ids || [])}::int[])`;
 }
 
@@ -83,7 +93,7 @@ export function companyScope(user, P, col = 'company_id') {
 export function canSite(user, site) {
   if (!site) return false;
   if (user.role === 'SUPERADMIN') return true;
-  if (user.role === 'ADMIN') return site.company_id === user.company_id;
+  if (companyWide(user)) return site.company_id === user.company_id;
   return (user.site_ids || []).includes(site.id);
 }
 

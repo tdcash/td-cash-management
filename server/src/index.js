@@ -18,6 +18,8 @@ import statsRoutes from './routes/stats.js';
 import importRoutes from './routes/imports.js';
 import royaltyRoutes from './routes/royalty.js';
 import depositRoutes from './routes/deposits.js';
+import commsRoutes from './routes/comms.js';
+import { startScheduler } from './lib/alerts.js';
 import siteRoyaltyRoutes from './routes/siteRoyalty.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -73,6 +75,7 @@ app.use('/api/stats', statsRoutes);
 app.use('/api/imports', importRoutes);
 app.use('/api/canoni', siteRoyaltyRoutes);
 app.use('/api/deposits', depositRoutes);
+app.use('/api/comms', commsRoutes);
 app.use('/api/royalty', royaltyRoutes);
 app.use('/api', (_req, _res, next) => next(new HttpError(404, 'Endpoint inesistente')));
 
@@ -106,5 +109,6 @@ async function start() {
   }
   await migrate();
   app.listen(config.port, () => console.log(`TD Cash in ascolto su :${config.port}`));
+  if (process.env.DISABLE_SCHEDULER !== 'true') startScheduler();
 }
 start().catch((e) => { console.error(e); process.exit(1); });

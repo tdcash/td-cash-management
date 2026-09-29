@@ -5,7 +5,7 @@ import { useApi, Card, Field, Loading, ErrorBox, Empty, Badge, Modal, MoneyInput
 import { eur, itDateTime } from '../format.js';
 
 const DAYS = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom'];
-const empty = { company_id: '', code: '', name: '', address: '', city: '', province: '', cash_float: 0, operating_days: '1111110', pos_terminals: '', active: true, float_reason: '', host_name: '', host_vat: '', royalty_fixed_monthly: 0, royalty_pct: 0, royalty_base: 'TOTALE', royalty_vat_rate: 0, royalty_notes: '' };
+const empty = { company_id: '', code: '', name: '', address: '', city: '', province: '', site_email: '', host_email: '', cash_float: 0, operating_days: '1111110', pos_terminals: '', active: true, float_reason: '', host_name: '', host_vat: '', royalty_fixed_monthly: 0, royalty_pct: 0, royalty_base: 'TOTALE', royalty_vat_rate: 0, royalty_notes: '' };
 const BASES = { TOTALE: 'Totale incassi (contanti, POS, bonifici)', CONTANTI_POS: 'Contanti e POS', CONTANTI: 'Solo contanti' };
 
 export default function Sites() {
@@ -19,7 +19,7 @@ export default function Sites() {
   const [err, setErr] = useState(null);
   const save = async () => {
     setErr(null);
-    const b = { ...edit, company_id: Number(edit.company_id || user.company_id), cash_float: Number(edit.cash_float), address: edit.address || null, city: edit.city || null, province: edit.province || null, pos_terminals: edit.pos_terminals || null,
+    const b = { ...edit, company_id: Number(edit.company_id || user.company_id), cash_float: Number(edit.cash_float), address: edit.address || null, city: edit.city || null, province: edit.province || null, site_email: edit.site_email || null, host_email: edit.host_email || null, pos_terminals: edit.pos_terminals || null,
       host_name: edit.host_name || null, host_vat: edit.host_vat || null, royalty_fixed_monthly: Number(edit.royalty_fixed_monthly) || 0, royalty_pct: Number(edit.royalty_pct) || 0, royalty_vat_rate: Number(edit.royalty_vat_rate) || 0, royalty_notes: edit.royalty_notes || null };
     delete b.company_name; delete b.company_code; delete b.users_count; delete b.created_at; delete b.updated_at;
     try {
@@ -41,15 +41,15 @@ export default function Sites() {
           <thead><tr><th>Codice</th><th>Sede</th>{sup && <th>Azienda</th>}<th>Giorni operativi</th><th>Struttura ospitante</th><th>Canone</th><th className="num">Fondo cassa</th><th className="num">Utenti</th><th>Stato</th><th /></tr></thead>
           <tbody>{data.map((s) => (
             <tr key={s.id}>
-              <td className="mono">{s.code}</td><td><b>{s.name}</b><div className="small muted">{[s.address, s.city, s.province && `(${s.province})`].filter(Boolean).join(' ')}</div></td>
+              <td className="mono">{s.code}</td><td><b>{s.name}</b><div className="small muted">{[s.address, s.city, s.province && `(${s.province})`].filter(Boolean).join(' ')}</div>{s.site_email ? <div className="small muted">{s.site_email}</div> : <div className="small red">email sede mancante</div>}</td>
               {sup && <td>{s.company_name}</td>}
               <td>{DAYS.map((d, i) => <span key={d} className="chip" style={{ opacity: s.operating_days[i] === '1' ? 1 : .3 }}>{d}</span>)}</td>
-              <td>{s.host_name || <span className="muted">–</span>}</td>
+              <td>{s.host_name || <span className="muted">–</span>}{s.host_email && <div className="small muted">{s.host_email}</div>}</td>
               <td className="small">{Number(s.royalty_fixed_monthly) > 0 && <div>{eur(s.royalty_fixed_monthly)}/mese</div>}{Number(s.royalty_pct) > 0 && <div>{s.royalty_pct}% {s.royalty_base === 'TOTALE' ? 'sul totale' : s.royalty_base === 'CONTANTI_POS' ? 'su contanti e POS' : 'sui contanti'}</div>}{Number(s.royalty_fixed_monthly) > 0 || Number(s.royalty_pct) > 0 ? <div className="muted">IVA {s.royalty_vat_rate}%</div> : <span className="muted">nessuno</span>}</td>
               <td className="num strong">{eur(s.cash_float)} <button className="btn link small" onClick={() => setHist(s)}>storico</button></td>
               <td className="num">{s.users_count}</td>
               <td>{s.active ? <Badge tone="green">Attiva</Badge> : <Badge tone="red">Disattiva</Badge>}</td>
-              <td className="num"><button className="btn sm ghost" onClick={() => setEdit({ ...s, pos_terminals: s.pos_terminals || '', address: s.address || '', city: s.city || '', province: s.province || '', float_reason: '', host_name: s.host_name || '', host_vat: s.host_vat || '', royalty_notes: s.royalty_notes || '' })}>Modifica</button></td>
+              <td className="num"><button className="btn sm ghost" onClick={() => setEdit({ ...s, pos_terminals: s.pos_terminals || '', address: s.address || '', city: s.city || '', province: s.province || '', site_email: s.site_email || '', host_email: s.host_email || '', float_reason: '', host_name: s.host_name || '', host_vat: s.host_vat || '', royalty_notes: s.royalty_notes || '' })}>Modifica</button></td>
             </tr>))}</tbody>
         </table></div></div>
       )}
@@ -63,6 +63,7 @@ export default function Sites() {
             <Field label="Indirizzo"><input value={edit.address} onChange={(e) => setEdit({ ...edit, address: e.target.value })} /></Field>
             <Field label="Città"><input value={edit.city} onChange={(e) => setEdit({ ...edit, city: e.target.value })} /></Field>
             <Field label="Provincia (sigla)"><input value={edit.province} maxLength={4} style={{ textTransform: 'uppercase' }} onChange={(e) => setEdit({ ...edit, province: e.target.value })} /></Field>
+            <Field label="Email della sede" help="Riceve solleciti, segnalazioni e comunicazioni"><input type="email" value={edit.site_email} onChange={(e) => setEdit({ ...edit, site_email: e.target.value })} /></Field>
             <Field label="Fondo cassa" help="Somma che resta in sede e viene sottratta dal contante versato"><MoneyInput value={edit.cash_float} onChange={(v) => setEdit({ ...edit, cash_float: v === '' ? 0 : v })} /></Field>
             <Field label="Terminali POS (TID separati da virgola)" help="Servono per riconoscere la sede negli estratti dell'acquirer"><input value={edit.pos_terminals} onChange={(e) => setEdit({ ...edit, pos_terminals: e.target.value })} /></Field>
           </div>
@@ -75,6 +76,7 @@ export default function Sites() {
           <div className="form-grid">
             <Field label="Struttura ospitante"><input value={edit.host_name} onChange={(e) => setEdit({ ...edit, host_name: e.target.value })} placeholder="es. Farmacia Comunale n. 3" /></Field>
             <Field label="P.IVA struttura"><input value={edit.host_vat} onChange={(e) => setEdit({ ...edit, host_vat: e.target.value })} /></Field>
+            <Field label="Email struttura ospitante" help="Riceve il report royalty confermato, per fatturare"><input type="email" value={edit.host_email} onChange={(e) => setEdit({ ...edit, host_email: e.target.value })} /></Field>
             <Field label="Quota fissa mensile" help="0 se non prevista"><MoneyInput value={edit.royalty_fixed_monthly} onChange={(v) => setEdit({ ...edit, royalty_fixed_monthly: v === '' ? 0 : v })} /></Field>
             <Field label="Percentuale sui ricavi %" help="0 se non prevista"><input type="number" step="0.01" min="0" max="100" value={edit.royalty_pct} onChange={(e) => setEdit({ ...edit, royalty_pct: e.target.value })} /></Field>
             <Field label="Base della percentuale"><select value={edit.royalty_base} onChange={(e) => setEdit({ ...edit, royalty_base: e.target.value })}>{Object.entries(BASES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>

@@ -5,7 +5,7 @@ import multer from 'multer';
 import { z } from 'zod';
 import { one, many, q, tx } from '../db.js';
 import { ah, bad, forbidden, notFound, audit, parse } from '../lib/util.js';
-import { requireRole, isSuper, Params, siteScope, assertCompany, assertSite } from '../lib/access.js';
+import { requireRole, isSuper, Params, siteScope, assertCompany, assertSite, FINANCE_ROLES } from '../lib/access.js';
 
 const r = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 1024 * 1024 } });
@@ -95,6 +95,8 @@ const siteSchema = z.object({
   address: opt(z.string().max(200)),
   city: opt(z.string().max(100)),
   province: opt(z.string().max(4).transform((v) => (v ? v.toUpperCase() : v))),
+  site_email: opt(z.string().email().or(z.literal(''))),
+  host_email: opt(z.string().email().or(z.literal(''))),
   cash_float: z.number().min(0).max(100000),
   operating_days: z.string().regex(/^[01]{7}$/).default('1111110'),
   pos_terminals: opt(z.string().max(300)),
@@ -108,6 +110,54 @@ const siteSchema = z.object({
   royalty_vat_rate: z.number().min(0).max(100).default(0),
   royalty_notes: opt(z.string().max(1000)),
 });
+// ---------------- Conti correnti aziendali ----------------
+const IBAN_RE = /^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$/;
+const accountSchema = z.object({
+  label: z.string().trim().min(2).max(80),
+  bank_name: z.string().trim().max(120).nullable().optional(),
+  iban: z.string().trim().transform((v) => v.replace(/\s+/g, '').toUpperCase()).refine((v) => IBAN_RE.test(v), 'IBAN non valido'),
+  bic: z.string().trim().max(11).nullable().optional(),
+  notes: z.string().trim().max(300).nullable().optional(),
+  is_default: z.boolean().default(false),
+  active: z.boolean().default(true),
+});
+
+// Elenco: chi conferma gli accrediti deve poter scegliere il conto
+r.get('/companies/:id/bank-accounts', requireRole(...FINANCE_ROLES), ah(async (req, res) => {
+  const cid = Number(req.params.id);
+  assertCompany(req.user, cid);
+  res.json(await many('SELECT id, company_id, label, bank_name, iban, bic, notes, is_default, active, created_at FROM company_bank_accounts WHERE company_id=$1 ORDER BY active DESC, is_default DESC, label', [cid]));
+}));
+
+r.post('/companies/:id/bank-accounts', requireRole('SUPERADMIN', 'ADMIN'), ah(async (req, res) => {
+  const cid = Number(req.params.id);
+  assertCompany(req.user, cid);
+  const d = parse(accountSchema, req.body);
+  if (await one('SELECT 1 FROM company_bank_accounts WHERE company_id=$1 AND iban=$2', [cid, d.iban])) throw bad('IBAN già presente per questa azienda');
+  const row = await tx(async (c) => {
+    if (d.is_default) await c.query('UPDATE company_bank_accounts SET is_default=FALSE WHERE company_id=$1', [cid]);
+    return (await c.query(`INSERT INTO company_bank_accounts (company_id, label, bank_name, iban, bic, notes, is_default, active) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      [cid, d.label, d.bank_name || null, d.iban, d.bic || null, d.notes || null, d.is_default, d.active])).rows[0];
+  });
+  await audit(req, 'BANK_ACCOUNT_CREATE', 'bank_account', row.id, { company_id: cid, label: d.label, iban: d.iban });
+  res.status(201).json(row);
+}));
+
+r.put('/companies/:id/bank-accounts/:aid', requireRole('SUPERADMIN', 'ADMIN'), ah(async (req, res) => {
+  const cid = Number(req.params.id);
+  assertCompany(req.user, cid);
+  const acc = await one('SELECT * FROM company_bank_accounts WHERE id=$1 AND company_id=$2', [Number(req.params.aid), cid]);
+  if (!acc) throw notFound('Conto non trovato');
+  const d = parse(z.object(Object.fromEntries(Object.entries(accountSchema.shape).map(([k, v]) => [k, (v instanceof z.ZodDefault ? v.removeDefault() : v).optional()]))), req.body);
+  await tx(async (c) => {
+    if (d.is_default) await c.query('UPDATE company_bank_accounts SET is_default=FALSE WHERE company_id=$1', [cid]);
+    const cols = Object.keys(d);
+    if (cols.length) await c.query(`UPDATE company_bank_accounts SET ${cols.map((k, i) => `${k}=$${i + 2}`).join(', ')}, updated_at=now() WHERE id=$1`, [acc.id, ...cols.map((k) => d[k])]);
+  });
+  await audit(req, 'BANK_ACCOUNT_UPDATE', 'bank_account', acc.id, d);
+  res.json(await one('SELECT * FROM company_bank_accounts WHERE id=$1', [acc.id]));
+}));
+
 const ROYALTY_COLS = ['royalty_fixed_monthly', 'royalty_pct', 'royalty_vat_rate', 'royalty_base'];
 
 r.get('/sites', ah(async (req, res) => {
@@ -133,10 +183,10 @@ r.post('/sites', requireRole('SUPERADMIN', 'ADMIN'), ah(async (req, res) => {
   if (await one('SELECT 1 FROM sites WHERE company_id=$1 AND code=$2', [d.company_id, d.code])) throw bad('Codice sede già esistente per questa azienda');
   const row = await tx(async (c) => {
     const s = (await c.query(`INSERT INTO sites (company_id, code, name, address, city, province, cash_float, operating_days, pos_terminals, active,
-        host_name, host_vat, royalty_fixed_monthly, royalty_pct, royalty_base, royalty_vat_rate, royalty_notes)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING id`,
+        host_name, host_vat, royalty_fixed_monthly, royalty_pct, royalty_base, royalty_vat_rate, royalty_notes, site_email, host_email)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING id`,
     [d.company_id, d.code, d.name, d.address, d.city, d.province, d.cash_float, d.operating_days, d.pos_terminals, d.active,
-      d.host_name, d.host_vat, d.royalty_fixed_monthly, d.royalty_pct, d.royalty_base, d.royalty_vat_rate, d.royalty_notes])).rows[0];
+      d.host_name, d.host_vat, d.royalty_fixed_monthly, d.royalty_pct, d.royalty_base, d.royalty_vat_rate, d.royalty_notes, d.site_email || null, d.host_email || null])).rows[0];
     await c.query('INSERT INTO cash_float_history (site_id, old_value, new_value, changed_by, reason) VALUES ($1,NULL,$2,$3,$4)',
       [s.id, d.cash_float, req.user.id, 'Impostazione iniziale']);
     await c.query('INSERT INTO site_royalty_history (site_id, fixed_monthly, pct, vat_rate, base, changed_by) VALUES ($1,$2,$3,$4,$5,$6)',
@@ -181,7 +231,7 @@ const tempPassword = () => {
 const userSchema = z.object({
   email: z.string().email().transform((v) => v.toLowerCase()),
   full_name: z.string().min(2).max(120),
-  role: z.enum(['SUPERADMIN', 'ADMIN', 'OPERATOR', 'PARTNER']),
+  role: z.enum(['SUPERADMIN', 'ADMIN', 'CASSIERE', 'FINANCE', 'OPERATOR', 'PARTNER']),
   company_id: z.number().int().nullable().optional(),
   auth_provider: z.enum(['LOCAL', 'ENTRA', 'BOTH']),
   site_ids: z.array(z.number().int()).default([]),
@@ -196,8 +246,8 @@ async function checkUserPayload(req, d, existing) {
   }
   if (d.role === 'SUPERADMIN') { d.company_id = null; d.site_ids = []; }
   else if (!d.company_id) throw bad('Azienda obbligatoria');
-  if (d.role === 'ADMIN') d.site_ids = []; // l'amministratore vede tutte le sedi dell'azienda
-  if (['OPERATOR', 'PARTNER'].includes(d.role) && !d.site_ids.length) throw bad('Assegna almeno una sede');
+  if (['ADMIN', 'FINANCE'].includes(d.role)) d.site_ids = []; // amministratore e finance operano su tutta l'azienda
+  if (['OPERATOR', 'CASSIERE', 'PARTNER'].includes(d.role) && !d.site_ids.length) throw bad('Assegna almeno una sede');
   if (d.site_ids.length) {
     const bad2 = await one('SELECT count(*)::int AS n FROM sites WHERE id = ANY($1::int[]) AND company_id <> $2', [d.site_ids, d.company_id]);
     if (bad2.n) throw bad("Le sedi devono appartenere all'azienda dell'utente");
@@ -283,7 +333,7 @@ r.post('/users/:id/reset-totp', requireRole('SUPERADMIN', 'ADMIN'), ah(async (re
 }));
 
 // ---------------- Impostazioni (creditore SEPA) ----------------
-const SETTINGS_KEYS = ['creditor_name', 'creditor_iban', 'creditor_bic', 'creditor_id', 'royalty_invoice_prefix', 'pickup_alert_days'];
+const SETTINGS_KEYS = ['creditor_name', 'creditor_iban', 'creditor_bic', 'creditor_id', 'royalty_invoice_prefix', 'pickup_alert_days', 'daily_alert_hour', 'daily_alert_enabled', 'daily_summary_admins'];
 
 r.get('/settings', requireRole('SUPERADMIN'), ah(async (_req, res) => {
   const rows = await many('SELECT key, value FROM app_settings WHERE key = ANY($1)', [SETTINGS_KEYS]);
@@ -298,6 +348,9 @@ r.put('/settings', requireRole('SUPERADMIN'), ah(async (req, res) => {
     creditor_id: z.string().max(35).optional(),
     royalty_invoice_prefix: z.string().max(10).optional(),
     pickup_alert_days: z.string().regex(/^\d{1,2}$/).optional(),
+    daily_alert_hour: z.string().regex(/^([01]?\d|2[0-3])$/).optional(),
+    daily_alert_enabled: z.enum(['true', 'false']).optional(),
+    daily_summary_admins: z.enum(['true', 'false']).optional(),
   }), req.body);
   for (const [k, v] of Object.entries(d)) {
     await q('INSERT INTO app_settings (key, value) VALUES ($1,$2) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value', [k, v]);

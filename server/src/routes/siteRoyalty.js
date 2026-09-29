@@ -7,9 +7,10 @@ import { ah, bad, forbidden, eur, itDate, audit, parse, todayRome } from '../lib
 import { Params, siteScope, assertSite } from '../lib/access.js';
 import { computeSiteRoyalty, BASE_LABEL } from '../lib/siteRoyalty.js';
 import { letterhead, ASSETS, C, M, W, CONTENT_TOP } from '../pdf/distinta.js';
+import { notifyRoyaltyConfirmed } from '../lib/alerts.js';
 
 const r = Router();
-r.use((req, _res, next) => (req.user.role === 'OPERATOR' ? next(forbidden('Sezione riservata ad amministratori e partner')) : next()));
+r.use((req, _res, next) => (['OPERATOR', 'CASSIERE', 'FINANCE'].includes(req.user.role) ? next(forbidden('Sezione riservata ad amministratori e partner')) : next()));
 const PERIOD = /^\d{4}-(0[1-9]|1[0-2])$/;
 const monthRange = (p) => {
   const [y, m] = p.split('-').map(Number);
@@ -95,7 +96,12 @@ r.post('/sites/:id/confirm', ah(async (req, res) => {
   [site.id, period, rev.cash, rev.pos, rev.transfer, k.base, k.fixed, k.variable, k.taxable, k.vat, k.total,
     JSON.stringify({ fixed_monthly: site.royalty_fixed_monthly, pct: site.royalty_pct, base: site.royalty_base, vat_rate: site.royalty_vat_rate, host_name: site.host_name, host_vat: site.host_vat }), rev.reports, req.user.id]);
   await audit(req, 'SITE_ROYALTY_CONFIRM', 'site', site.id, { period, total: k.total });
-  res.status(201).json({ id: row.id });
+  let mail = null;
+  try {
+    const built = await buildSiteRoyaltyPdf(req, null, { period, siteId: site.id });
+    mail = await notifyRoyaltyConfirmed({ site, period, statement: { id: row.id, ...k }, pdf: built.pdf, confirmedBy: req.user.full_name });
+  } catch (e) { mail = { status: 'FALLITA', error: e.message }; }
+  res.status(201).json({ id: row.id, mail });
 }));
 
 // Annulla conferma (amministratore), con motivazione: il partner non vede più il report
@@ -112,9 +118,15 @@ r.post('/sites/:id/unconfirm', ah(async (req, res) => {
 
 // Report PDF mensile per sede, su carta intestata dell'azienda
 r.get('/sites/:id/pdf', ah(async (req, res) => {
-  const period = String(req.query.period || '');
+  const out = await buildSiteRoyaltyPdf(req, res);
+  if (out) res.type('application/pdf').set('Content-Disposition', `inline; filename="Canone_${out.site.code}_${out.period}.pdf"`).send(out.pdf);
+}));
+
+async function buildSiteRoyaltyPdf(req, _res, override = {}) {
+  const res = null;
+  const period = String(override.period || req.query.period || '');
   if (!PERIOD.test(period)) throw bad('Periodo non valido (AAAA-MM)');
-  const site0 = await assertSite(req.user, Number(req.params.id));
+  const site0 = await assertSite(req.user, Number(override.siteId || req.params.id));
   const company = await one('SELECT * FROM companies WHERE id=$1', [site0.company_id]);
   const { start, end } = monthRange(period);
   const st = await one('SELECT s.*, u.full_name AS confirmed_by_name FROM site_royalty_statements s LEFT JOIN users u ON u.id=s.confirmed_by WHERE s.site_id=$1 AND s.period=$2 AND s.cancelled_at IS NULL', [site0.id, period]);
@@ -133,8 +145,10 @@ r.get('/sites/:id/pdf', ah(async (req, res) => {
   const doc = new PDFDocument({ size: 'A4', margin: 0, bufferPages: true, info: { Title: `Canone sede ${site.code} ${period}`, Author: company.name } });
   doc.registerFont('R', path.join(ASSETS, 'LiberationSans-Regular.ttf'));
   doc.registerFont('B', path.join(ASSETS, 'LiberationSans-Bold.ttf'));
-  res.type('application/pdf').set('Content-Disposition', `inline; filename="Canone_${site.code}_${period}.pdf"`);
-  doc.pipe(res);
+  const chunks = [];
+  doc.on('data', (c) => chunks.push(c));
+  const done = new Promise((resolve) => doc.on('end', () => resolve(Buffer.concat(chunks))));
+  void res;
   letterhead(doc, company);
   let y = CONTENT_TOP;
   doc.rect(M.left, y, W, 26).fill(C.teal);
@@ -193,6 +207,7 @@ r.get('/sites/:id/pdf', ah(async (req, res) => {
     `Report generato il ${itDate(new Date().toISOString())} dal sistema Cash Management sui rendiconti giornalieri della sede. La quota fissa è applicata per intero anche in caso di mese parziale. ` +
     'Documento di riepilogo del calcolo: la fattura della struttura ospitante segue il flusso contabile ordinario.', M.left, y, { width: W });
   doc.end();
-}));
+  return { pdf: await done, site, period };
+}
 
 export default r;

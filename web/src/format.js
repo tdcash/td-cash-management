@@ -40,7 +40,14 @@ export const STATUS = {
   DEPOSITED: { label: 'Versato', tone: 'grey' },
 };
 export const DEPOSIT_STATUS = { PREPARATO: { label: 'Preparato', tone: 'blue' }, RITIRATO: { label: 'Ritirato dal portavalori', tone: 'mauve' }, ACCREDITATO: { label: 'Accreditato', tone: 'green' } };
-export const ROLE = { SUPERADMIN: 'Super amministratore', ADMIN: 'Amministratore', OPERATOR: 'Operatore', PARTNER: 'Partner' };
+export const ROLE = { SUPERADMIN: 'Super amministratore', ADMIN: 'Amministratore di sede', CASSIERE: 'Cassiere', FINANCE: 'Finance Specialist', OPERATOR: 'Operatore', PARTNER: 'Partner' };
+export const ROLE_HELP = {
+  ADMIN: 'Tutto il processo della propria azienda: rendiconti, revisione, cassaforte, versamenti, accrediti, anagrafiche.',
+  CASSIERE: 'Revisione e approvazione dei rendiconti delle sedi assegnate: operazione logistica, riconteggio e verifica, segnalazioni.',
+  FINANCE: 'Cassaforte, versamenti al portavalori e conferma degli accrediti per tutta l\'azienda. Rendiconti in sola lettura.',
+  OPERATOR: 'Compila i rendiconti di cassa delle sedi assegnate e risponde alle segnalazioni.',
+  PARTNER: 'Struttura ospitante: statistiche incassi e royalty confermate delle sue sedi, sola lettura.',
+};
 export const BANKNOTES = [500, 200, 100, 50, 20, 10, 5];
 export const COINS = [2, 1, 0.5, 0.2, 0.1, 0.05, 0.02, 0.01];
 export const dkey = (d) => String(Number(d));

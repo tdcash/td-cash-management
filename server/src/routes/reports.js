@@ -3,10 +3,10 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 *
 import { z } from 'zod';
 import { one, many, q, tx } from '../db.js';
 import { ah, bad, forbidden, notFound, audit, parse, todayRome, eur, itDate } from '../lib/util.js';
-import { Params, siteScope, assertSite, isAdmin, requireRole } from '../lib/access.js';
+import { Params, siteScope, assertSite, isAdmin, requireRole, REVIEW_ROLES, canCount } from '../lib/access.js';
 import { BANKNOTES, COINS, DENOMS, dkey, CIRCUITS, computeTotals, STATUS_LABEL } from '../lib/cash.js';
 import multer from 'multer';
-import pdfParse from 'pdf-parse';
+import { PDFParse } from 'pdf-parse';
 import { extractCashFigures } from '../lib/gestionale.js';
 import { buildSlipPdf } from '../pdf/distinta.js';
 import { buildCustodyPdf } from '../pdf/custodia.js';
@@ -77,7 +77,11 @@ r.get('/:id', ah(async (req, res) => {
   res.json(await fullReport(Number(req.params.id)));
 }));
 
-r.post('/', ah(async (req, res) => {
+// Fase di conteggio (bozza, busta, distinta, PDF gestionale): operatori e amministratori. Cassiere e Finance non compilano.
+const countOnly = (req, _res, next) => (canCount(req.user) ? next() : next(forbidden('La compilazione del rendiconto è riservata agli operatori di sede')));
+r.use((req, _res, next) => (req.user.role === 'FINANCE' && req.method !== 'GET' ? next(forbidden('Il profilo Finance consulta i rendiconti in sola lettura')) : next()));
+
+r.post('/', countOnly, ah(async (req, res) => {
   const d = parse(z.object({ site_id: z.number().int(), report_date: isoDate }), req.body);
   const site = await assertSite(req.user, d.site_id);
   if (!site.active) throw bad('Sede non attiva');
@@ -119,7 +123,7 @@ const updateSchema = z.object({
   })).max(500).default([]),
 });
 
-r.put('/:id', ah(async (req, res) => {
+r.put('/:id', countOnly, ah(async (req, res) => {
   const rep = await loadReport(req.user, Number(req.params.id));
   if (rep.status !== 'DRAFT') throw bad('Il rendiconto non è in bozza: sbloccalo o chiedi la riapertura a un amministratore');
   const d = parse(updateSchema, req.body);
@@ -157,7 +161,7 @@ r.put('/:id', ah(async (req, res) => {
 }));
 
 // Registrazione busta Mondialpol: DRAFT -> CLOSED
-r.post('/:id/envelope', ah(async (req, res) => {
+r.post('/:id/envelope', countOnly, ah(async (req, res) => {
   const rep = await loadReport(req.user, Number(req.params.id));
   if (rep.status !== 'DRAFT') throw bad('Busta già registrata');
   if (Number(rep.cash_to_deposit) < 0) throw bad(`Il contante contato è inferiore al fondo cassa di ${eur(-rep.cash_to_deposit)}: verifica il conteggio o apri una non conformità`);
@@ -180,7 +184,7 @@ r.post('/:id/envelope', ah(async (req, res) => {
 }));
 
 // Sblocco (prima dell'elaborazione): CLOSED -> DRAFT
-r.post('/:id/unlock', ah(async (req, res) => {
+r.post('/:id/unlock', countOnly, ah(async (req, res) => {
   const rep = await loadReport(req.user, Number(req.params.id));
   if (rep.status !== 'CLOSED') throw bad('Sblocco possibile solo prima di elaborare la distinta');
   await tx(async (c) => {
@@ -192,7 +196,7 @@ r.post('/:id/unlock', ah(async (req, res) => {
 }));
 
 // Elaborazione distinta PDF: CLOSED -> PROCESSED
-r.post('/:id/process', ah(async (req, res) => {
+r.post('/:id/process', countOnly, ah(async (req, res) => {
   const rep = await loadReport(req.user, Number(req.params.id));
   if (rep.status !== 'CLOSED') throw bad('Per elaborare la distinta registra prima la busta Mondialpol');
   const full = await fullReport(rep.id);
@@ -222,7 +226,7 @@ r.get('/:id/pdf', ah(async (req, res) => {
 
 // Operazione logistica (amministratore di sede): PROCESSED -> PICKED_UP
 // L'amministratore riceve la busta sigillata dalla logistica, la porta in cassaforte e registra chi l'ha consegnata.
-r.post('/:id/pickup', requireRole('SUPERADMIN', 'ADMIN'), ah(async (req, res) => {
+r.post('/:id/pickup', requireRole(...REVIEW_ROLES), ah(async (req, res) => {
   const rep = await loadReport(req.user, Number(req.params.id));
   if (rep.status !== 'PROCESSED') throw bad('L\'operazione logistica si registra dopo l\'elaborazione della distinta');
   const d = parse(z.object({ operator_name: z.string().trim().min(3).max(120), picked_at: z.string().datetime({ offset: true }).optional() }), req.body);
@@ -238,7 +242,7 @@ r.post('/:id/pickup', requireRole('SUPERADMIN', 'ADMIN'), ah(async (req, res) =>
 }));
 
 // Riconteggio e verifica (amministratore di sede): PICKED_UP -> VERIFIED. Chiude il ciclo della rendicontazione.
-r.post('/:id/verify', requireRole('SUPERADMIN', 'ADMIN'), ah(async (req, res) => {
+r.post('/:id/verify', requireRole(...REVIEW_ROLES), ah(async (req, res) => {
   const rep = await loadReport(req.user, Number(req.params.id));
   if (rep.status !== 'PICKED_UP' && !(rep.status === 'PROCESSED' && Number(rep.cash_to_deposit) === 0)) throw bad('Il riconteggio si registra dopo l\'operazione logistica');
   const d = parse(z.object({ amount: z.number().min(0), note: z.string().max(500).nullable().optional() }), req.body);
@@ -263,7 +267,7 @@ r.post('/:id/verify', requireRole('SUPERADMIN', 'ADMIN'), ah(async (req, res) =>
 
 // Annulla l'ultimo passaggio (amministratori): torna allo stato precedente, con motivazione
 const PREV = { CLOSED: 'DRAFT', PROCESSED: 'CLOSED', PICKED_UP: 'PROCESSED', VERIFIED: 'PICKED_UP' };
-r.post('/:id/undo', requireRole('SUPERADMIN', 'ADMIN'), ah(async (req, res) => {
+r.post('/:id/undo', requireRole(...REVIEW_ROLES), ah(async (req, res) => {
   const rep = await loadReport(req.user, Number(req.params.id));
   const d = parse(z.object({ reason: z.string().trim().min(5).max(500) }), req.body);
   if (rep.status === 'DEPOSITED') throw bad('Rendiconto incluso in un versamento: annulla prima il versamento');
@@ -285,7 +289,7 @@ r.post('/:id/undo', requireRole('SUPERADMIN', 'ADMIN'), ah(async (req, res) => {
 }));
 
 // Riapertura completa (amministratori), solo prima dell'operazione logistica
-r.post('/:id/reopen', requireRole('SUPERADMIN', 'ADMIN'), ah(async (req, res) => {
+r.post('/:id/reopen', requireRole(...REVIEW_ROLES), ah(async (req, res) => {
   const rep = await loadReport(req.user, Number(req.params.id));
   if (!['CLOSED', 'PROCESSED'].includes(rep.status)) throw bad('Riapertura completa possibile solo prima dell\'operazione logistica. Usa "Annulla ultimo passaggio".');
   const d = parse(z.object({ reason: z.string().trim().min(5).max(500) }), req.body);
@@ -299,13 +303,18 @@ r.post('/:id/reopen', requireRole('SUPERADMIN', 'ADMIN'), ah(async (req, res) =>
 }));
 
 // PDF del gestionale: caricamento, estrazione automatica degli importi, conferma
-r.post('/:id/system-pdf', upload.single('file'), ah(async (req, res) => {
+r.post('/:id/system-pdf', countOnly, upload.single('file'), ah(async (req, res) => {
   const rep = await loadReport(req.user, Number(req.params.id));
   if (rep.status !== 'DRAFT') throw bad('Il file del gestionale si carica finché il rendiconto è in bozza');
   if (!req.file) throw bad('File mancante');
   if (req.file.mimetype !== 'application/pdf' && !req.file.originalname.toLowerCase().endsWith('.pdf')) throw bad('Serve un file PDF');
   let text = '';
-  try { text = (await pdfParse(req.file.buffer)).text || ''; } catch { throw bad('PDF non leggibile'); }
+  try {
+    const parser = new PDFParse({ data: new Uint8Array(req.file.buffer) });
+    text = (await parser.getText()).text || '';
+    await parser.destroy();
+  } catch { throw bad('PDF non leggibile'); }
+  text = text.replace(/^-- \d+ of \d+ --$/gm, '');
   const extracted = extractCashFigures(text);
   await q(`UPDATE cash_reports SET system_pdf=$2, system_pdf_name=$3, system_pdf_at=now(), system_extracted=$4, updated_at=now() WHERE id=$1`,
     [rep.id, req.file.buffer, req.file.originalname, JSON.stringify(extracted)]);
@@ -321,7 +330,7 @@ r.get('/:id/system-pdf', ah(async (req, res) => {
   res.type('application/pdf').set('Content-Disposition', `inline; filename="${row.system_pdf_name || 'gestionale.pdf'}"`).send(row.system_pdf);
 }));
 
-r.delete('/:id/system-pdf', ah(async (req, res) => {
+r.delete('/:id/system-pdf', countOnly, ah(async (req, res) => {
   const rep = await loadReport(req.user, Number(req.params.id));
   if (rep.status !== 'DRAFT') throw bad('Modificabile solo in bozza');
   await q('UPDATE cash_reports SET system_pdf=NULL, system_pdf_name=NULL, system_pdf_at=NULL, system_extracted=NULL WHERE id=$1', [rep.id]);

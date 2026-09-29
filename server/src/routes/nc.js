@@ -2,14 +2,16 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { one, many, q, tx } from '../db.js';
 import { ah, bad, forbidden, notFound, audit, parse } from '../lib/util.js';
-import { Params, isSuper, requireRole, assertSite, assertCompany, canSite } from '../lib/access.js';
+import { notifyNcOpened, notifyNcReply } from '../lib/alerts.js';
+import { sendMail } from '../lib/mailer.js';
+import { Params, isSuper, requireRole, assertSite, assertCompany, canSite, companyWide } from '../lib/access.js';
 
 const r = Router();
 
 // Visibilità: super tutto, admin la propria azienda, operatore le NC delle proprie sedi
 function scope(user, P) {
   if (isSuper(user)) return 'TRUE';
-  if (user.role === 'ADMIN') return `n.company_id = ${P.add(user.company_id)}`;
+  if (companyWide(user)) return `n.company_id = ${P.add(user.company_id)}`;
   return `n.site_id = ANY(${P.add(user.site_ids || [])}::int[])`;
 }
 
@@ -17,8 +19,8 @@ async function load(user, id) {
   const n = await one('SELECT * FROM nonconformities WHERE id=$1', [id]);
   if (!n) throw notFound('Non conformità non trovata');
   if (isSuper(user)) return n;
-  if (user.role === 'ADMIN' && n.company_id === user.company_id) return n;
-  if (user.role === 'OPERATOR' && n.site_id && canSite(user, { id: n.site_id, company_id: n.company_id })) return n;
+  if (companyWide(user) && n.company_id === user.company_id) return n;
+  if (['OPERATOR', 'CASSIERE'].includes(user.role) && n.site_id && canSite(user, { id: n.site_id, company_id: n.company_id })) return n;
   throw forbidden();
 }
 
@@ -47,7 +49,7 @@ r.get('/:id', ah(async (req, res) => {
   res.json({ ...n, ...extra, messages });
 }));
 
-r.post('/', requireRole('SUPERADMIN', 'ADMIN'), ah(async (req, res) => {
+r.post('/', requireRole('SUPERADMIN', 'ADMIN', 'CASSIERE', 'FINANCE'), ah(async (req, res) => {
   const d = parse(z.object({
     company_id: z.number().int().optional(),
     site_id: z.number().int().nullable().optional(),
@@ -71,6 +73,7 @@ r.post('/', requireRole('SUPERADMIN', 'ADMIN'), ah(async (req, res) => {
     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
   [d.company_id, d.site_id || null, d.report_id || null, d.kind, d.severity, d.title, d.description, d.due_date || null, req.user.id]);
   if (d.report_id) await q(`INSERT INTO report_events (report_id, event, detail, user_id) VALUES ($1,'NC_APERTA',$2,$3)`, [d.report_id, `#${row.id} ${d.title}`, req.user.id]);
+  if (d.site_id) { const site = await one('SELECT * FROM sites WHERE id=$1', [d.site_id]); notifyNcOpened({ ...d, id: row.id }, site, req.user.full_name).catch(() => {}); }
   await audit(req, 'NC_CREATE', 'nc', row.id, d);
   res.status(201).json(row);
 }));
@@ -86,11 +89,19 @@ r.post('/:id/messages', ah(async (req, res) => {
     await c.query('INSERT INTO nc_messages (nc_id, user_id, kind, body) VALUES ($1,$2,$3,$4)', [n.id, req.user.id, kind, d.body]);
     if (kind === 'RISPOSTA') await c.query(`UPDATE nonconformities SET status='RISPOSTA' WHERE id=$1`, [n.id]);
   });
+  if (kind === 'RISPOSTA') {
+    const creator = n.created_by ? await one('SELECT email FROM users WHERE id=$1', [n.created_by]) : null;
+    const site = n.site_id ? await one('SELECT * FROM sites WHERE id=$1', [n.site_id]) : null;
+    notifyNcReply(n, site, req.user.full_name, d.body, creator?.email).catch(() => {});
+  } else if (n.site_id) {
+    const site = await one('SELECT * FROM sites WHERE id=$1', [n.site_id]);
+    if (site?.site_email) sendMail({ kind: 'NC', to: site.site_email, companyId: n.company_id, siteId: site.id, sentBy: req.user.id, subject: `Nota su #${n.id} · ${site.name}: ${n.title}`, title: `Nota di ${req.user.full_name} sulla segnalazione #${n.id}`, body: d.body }).catch(() => {});
+  }
   await audit(req, 'NC_MESSAGE', 'nc', n.id, { kind });
   res.status(201).json({ ok: true });
 }));
 
-r.post('/:id/close', requireRole('SUPERADMIN', 'ADMIN'), ah(async (req, res) => {
+r.post('/:id/close', requireRole('SUPERADMIN', 'ADMIN', 'CASSIERE', 'FINANCE'), ah(async (req, res) => {
   const n = await load(req.user, Number(req.params.id));
   const d = parse(z.object({ body: z.string().trim().min(2).max(2000) }), req.body);
   if (n.status === 'CHIUSA') throw bad('Già chiusa');
@@ -102,7 +113,7 @@ r.post('/:id/close', requireRole('SUPERADMIN', 'ADMIN'), ah(async (req, res) => 
   res.json({ ok: true });
 }));
 
-r.post('/:id/reopen', requireRole('SUPERADMIN', 'ADMIN'), ah(async (req, res) => {
+r.post('/:id/reopen', requireRole('SUPERADMIN', 'ADMIN', 'CASSIERE', 'FINANCE'), ah(async (req, res) => {
   const n = await load(req.user, Number(req.params.id));
   const d = parse(z.object({ body: z.string().trim().min(2).max(2000) }), req.body);
   if (n.status !== 'CHIUSA') throw bad('Non è chiusa');

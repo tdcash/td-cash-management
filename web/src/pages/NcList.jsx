@@ -14,7 +14,7 @@ export default function NcList() {
   const [f, setF] = useState({ company_id: '', site_id: '', status: 'APERTA,RISPOSTA', kind: '' });
   const [create, setCreate] = useState(false);
   const { data, error, reload } = useApi(`/nc${qs(f)}`);
-  const admin = can(user, 'SUPERADMIN', 'ADMIN');
+  const admin = can(user, 'SUPERADMIN', 'ADMIN', 'CASSIERE', 'FINANCE');
   return (
     <div className="page">
       <div className="page-head">

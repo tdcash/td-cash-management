@@ -26,7 +26,7 @@ function client() {
   return { get: (u) => call('GET', u), post: (u, b) => call('POST', u, b || {}), put: (u, b) => call('PUT', u, b), del: (u, b) => call('DELETE', u, b), raw: (u) => call('GET', u, null, true) };
 }
 
-const S = client(); const A = client(); const O = client(); const O2 = client();
+const S = client(); const A = client(); const O = client(); const O2 = client(); const K = client(); const F = client();
 const ctx = {};
 
 async function loginWithOnboarding(c, email, password, newPwd, needTotp) {
@@ -364,6 +364,138 @@ test('flusso completo', async (t) => {
     const b = await O.post('/api/reports', { site_id: ctx.site, report_date: '2026-09-21' });
     assert.equal((await O2.del(`/api/reports/${b.data.id}`)).status, 403);
     assert.equal((await O.del(`/api/reports/${b.data.id}`)).status, 200);
+  });
+  await t.test('fasi separate: cassiere (revisione), finance (cassaforte, versamento, accredito su conto)', async () => {
+    // utenti con i nuovi ruoli
+    let r = await A.post('/api/users', { email: 'cassiere@bioscienze.it', full_name: 'Carla Cassa', role: 'CASSIERE', auth_provider: 'LOCAL', site_ids: [ctx.site] });
+    assert.equal(r.status, 201, JSON.stringify(r.data));
+    const kPwd = r.data.temporaryPassword;
+    assert.equal((await A.post('/api/users', { email: 'c2@bioscienze.it', full_name: 'Senza Sede', role: 'CASSIERE', auth_provider: 'LOCAL', site_ids: [] })).status, 400, 'cassiere senza sedi rifiutato');
+    r = await A.post('/api/users', { email: 'finance@bioscienze.it', full_name: 'Fabio Finanza', role: 'FINANCE', auth_provider: 'LOCAL' });
+    assert.equal(r.status, 201, JSON.stringify(r.data));
+    const fPwd = r.data.temporaryPassword;
+    await loginWithOnboarding(K, 'cassiere@bioscienze.it', kPwd, NEWPWD, false);
+    await loginWithOnboarding(F, 'finance@bioscienze.it', fPwd, NEWPWD, false);
+    // conti correnti dell'azienda (admin)
+    r = await A.post(`/api/companies/${ctx.company}/bank-accounts`, { label: 'Conto operativo', bank_name: 'Banco Fiorentino', iban: 'IT60 X054 2811 1010 0000 0123 456', is_default: true });
+    assert.equal(r.status, 201, JSON.stringify(r.data));
+    ctx.acc1 = r.data.id;
+    assert.equal(r.data.iban, 'IT60X0542811101000000123456');
+    r = await A.post(`/api/companies/${ctx.company}/bank-accounts`, { label: 'Conto incassi', iban: 'IT12A0300203280123456789012' });
+    ctx.acc2 = r.data.id;
+    assert.equal((await A.post(`/api/companies/${ctx.company}/bank-accounts`, { label: 'Duplicato', iban: 'IT60X0542811101000000123456' })).status, 400);
+    assert.equal((await F.post(`/api/companies/${ctx.company}/bank-accounts`, { label: 'x', iban: 'IT12A0300203280123456789013' })).status, 403, 'finance non crea conti');
+    r = await F.get(`/api/companies/${ctx.company}/bank-accounts`);
+    assert.equal(r.data.length, 2, 'finance legge i conti');
+    // nuovo rendiconto dell'operatore sulla sede 1
+    r = await O.post('/api/reports', { site_id: ctx.site, report_date: '2026-09-22' });
+    const rid = r.data.id;
+    r = await O.put(`/api/reports/${rid}`, { denominations: { 100: 4 } }); // 400 - fondo 200
+    assert.equal(r.status, 200, JSON.stringify(r.data));
+    r = await O.post(`/api/reports/${rid}/envelope`, { code: 'MP00088888', confirm: 'MP00088888' });
+    assert.equal(r.status, 200, JSON.stringify(r.data));
+    assert.equal((await K.post(`/api/reports/${rid}/process`)).status, 403, 'il cassiere non elabora la distinta');
+    assert.equal((await K.post('/api/reports', { site_id: ctx.site, report_date: '2026-09-23' })).status, 403, 'il cassiere non compila');
+    r = await O.post(`/api/reports/${rid}/process`);
+    assert.equal(r.status, 200, JSON.stringify(r.data));
+    // finance: sola lettura sui rendiconti
+    assert.equal((await F.get(`/api/reports/${rid}`)).status, 200);
+    assert.equal((await F.post(`/api/reports/${rid}/pickup`, { operator_name: 'x' })).status, 403);
+    // cassiere: operazione logistica e riconteggio sulla propria sede; non sulla sede 2
+    r = await K.post(`/api/reports/${rid}/pickup`, { operator_name: 'Giorgio Neri' });
+    assert.equal(r.status, 200, JSON.stringify(r.data));
+    r = await K.post(`/api/reports/${rid}/verify`, { amount: 200 });
+    assert.equal(r.status, 200, JSON.stringify(r.data));
+    assert.equal(r.data.status, 'VERIFIED');
+    const other = await O2.post('/api/reports', { site_id: ctx.site2, report_date: '2026-09-22' });
+    assert.equal((await K.get(`/api/reports/${other.data.id}`)).status, 403, 'cassiere non vede altre sedi');
+    assert.equal((await K.get(`/api/deposits/safe?company_id=${ctx.company}`)).status, 403, 'cassiere non entra in cassaforte');
+    // cassiere apre e chiude una segnalazione
+    r = await K.post('/api/nc', { site_id: ctx.site, kind: 'ERRORE', severity: 'BASSA', title: 'Busta stropicciata', description: 'Sigillo integro, busta danneggiata' });
+    assert.equal(r.status, 201, JSON.stringify(r.data));
+    assert.equal((await K.post(`/api/nc/${r.data.id}/close`, { body: 'Verificato' })).status, 200);
+    // finance: cassaforte, versamento, ritiro, accredito su conto
+    r = await F.get(`/api/deposits/safe?company_id=${ctx.company}`);
+    assert.equal(r.status, 200, JSON.stringify(r.data));
+    assert.ok(r.data.reports.some((x) => x.id === rid));
+    r = await F.post('/api/deposits', { company_id: ctx.company, report_ids: [rid], deposit_date: '2026-09-25', envelopes: [{ code: 'MPV0009', amount: 200 }] });
+    assert.equal(r.status, 201, JSON.stringify(r.data));
+    const dep = r.data.id;
+    assert.equal((await F.post(`/api/deposits/${dep}/bank`, { amount: 200, date: '2026-09-26', bank_account_id: ctx.acc1 })).status, 400, 'accredito prima del ritiro rifiutato');
+    await F.post(`/api/deposits/${dep}/pickup`, { operator_name: 'Paolo Verdi' });
+    assert.equal((await F.post(`/api/deposits/${dep}/bank`, { amount: 200, date: '2026-09-26' })).status, 400, 'conto obbligatorio se censito');
+    r = await F.post(`/api/deposits/${dep}/bank`, { amount: 200, date: '2026-09-26', bank_account_id: ctx.acc2, reference: 'MOV 12345' });
+    assert.equal(r.status, 200, JSON.stringify(r.data));
+    assert.equal(r.data.status, 'ACCREDITATO');
+    assert.equal(r.data.bank_account_label, 'Conto incassi');
+    assert.equal(r.data.bank_reference, 'MOV 12345');
+    r = await F.get(`/api/deposits?company_id=${ctx.company}&status=ACCREDITATO`);
+    assert.ok(r.data.every((x) => x.status === 'ACCREDITATO'));
+    assert.equal((await F.del(`/api/deposits/${dep}`, { reason: 'Prova eliminazione finance' })).status, 403, 'eliminazione riservata agli amministratori');
+    assert.equal((await A.del(`/api/deposits/${dep}`, { reason: 'Prova eliminazione dopo accredito' })).status, 200);
+    // finance non vede royalty né anagrafiche utenti
+    assert.equal((await F.get('/api/canoni/summary?period=2026-08')).status, 403);
+    assert.equal((await F.get('/api/users')).status, 403);
+    // conto disattivato non selezionabile
+    await A.put(`/api/companies/${ctx.company}/bank-accounts/${ctx.acc2}`, { active: false });
+    r = await A.get(`/api/companies/${ctx.company}/bank-accounts`);
+    assert.equal(r.data.find((x) => x.id === ctx.acc2).active, false);
+    assert.equal(r.data.find((x) => x.id === ctx.acc1).is_default, true, 'il predefinito resta');
+  });
+  await t.test('comunicazioni: email di sede, controllo giornaliero, solleciti, registro', async () => {
+    // email in anagrafica
+    let r = await A.put(`/api/sites/${ctx.site}`, { site_email: 'bsl01@bioscienze.it', host_email: 'farmacia3@esempio.it' });
+    assert.equal(r.status, 200, JSON.stringify(r.data));
+    const site = (await A.get('/api/sites')).data.find((x) => x.id === ctx.site);
+    assert.equal(site.site_email, 'bsl01@bioscienze.it');
+    assert.equal(site.host_email, 'farmacia3@esempio.it');
+    // giorno di test: oggi (le sedi create oggi contano da oggi); scelgo un giorno operativo
+    const iso = (d) => d.toISOString().slice(0, 10);
+    let day = new Date(); if (day.getUTCDay() === 0) day = new Date(day.getTime() + 86400000);
+    const D = iso(day);
+    r = await A.get(`/api/comms/daily?date=${D}`);
+    assert.equal(r.status, 200, JSON.stringify(r.data));
+    assert.equal(r.data.summary.operating, 2);
+    assert.equal(r.data.summary.missing, 2);
+    assert.equal(r.data.mail.configured, false);
+    assert.equal((await O.get(`/api/comms/daily?date=${D}`)).status, 403, 'operatore escluso');
+    // sollecito a tutte le mancanti: BSL01 registrato (mail non configurata), BSL02 senza email
+    r = await A.post('/api/comms/daily/alert', { date: D });
+    assert.equal(r.status, 200, JSON.stringify(r.data));
+    const s1 = r.data.find((x) => x.site === 'Borgo San Lorenzo centro');
+    const s2 = r.data.find((x) => x.site === 'Punto prelievo Vicchio');
+    assert.equal(s1.status, 'NON_CONFIGURATA');
+    assert.equal(s2.status, 'FALLITA'); assert.match(s2.error, /non impostata/);
+    // il sollecito si ripete solo finché non risulta inviato (qui email non configurata: registrato di nuovo)
+    r = await A.post('/api/comms/daily/alert', { date: D, site_id: ctx.site });
+    assert.equal(r.data[0].status, 'NON_CONFIGURATA');
+    r = await A.get(`/api/comms/daily?date=${D}`);
+    assert.equal(r.data.rows.find((x) => x.site_id === ctx.site).alert_status, 'NON_CONFIGURATA');
+    // comunicazione libera
+    r = await A.post('/api/comms/message', { site_id: ctx.site, subject: 'Chiusura anticipata', body: 'Domani la sede chiude alle 13.', to_host: true });
+    assert.equal(r.status, 200, JSON.stringify(r.data));
+    assert.equal(r.status, 200);
+    r = await A.post('/api/comms/message', { site_id: ctx.site2, subject: 'Prova', body: 'Nessuna email in anagrafica.' });
+    assert.equal(r.status, 400);
+    // registro
+    r = await A.get('/api/comms/log');
+    assert.ok(r.data.length >= 2);
+    assert.ok(r.data.some((x) => x.kind === 'COMUNICAZIONE' && x.to_addr.includes('farmacia3@esempio.it')));
+    // conferma royalty: invio al gestore ospitante registrato
+    r = await A.post(`/api/canoni/sites/${ctx.site}/confirm`, { period: '2026-08' });
+    assert.equal(r.status, 201, JSON.stringify(r.data));
+    assert.equal(r.data.mail.status, 'NON_CONFIGURATA');
+    r = await A.get('/api/comms/log?kind=ROYALTY');
+    assert.equal(r.data[0].to_addr, 'farmacia3@esempio.it');
+    assert.ok(r.data[0].attachment_name.endsWith('.pdf'));
+    // controllo automatico forzato dal super amministratore
+    r = await S.post('/api/comms/daily/run', {});
+    assert.equal(r.status, 200, JSON.stringify(r.data));
+    // NC: apertura notifica la sede (registrata)
+    r = await A.post('/api/nc', { site_id: ctx.site, kind: 'ERRORE', severity: 'BASSA', title: 'Prova notifica', description: 'Verifica invio email su apertura segnalazione' });
+    assert.equal(r.status, 201, JSON.stringify(r.data));
+    r = await A.get('/api/comms/log?kind=NC');
+    assert.ok(r.data.length >= 1);
   });
   await t.test('isolamento tra aziende', async () => {
     const r = await A.get('/api/companies');

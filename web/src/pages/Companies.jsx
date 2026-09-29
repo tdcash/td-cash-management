@@ -4,6 +4,49 @@ import { useAuth } from '../auth.jsx';
 import { useApi, Card, Field, Loading, ErrorBox, Empty, Badge, Modal, useToast } from '../components/ui.jsx';
 import { itDate } from '../format.js';
 
+const emptyAcc = { label: '', bank_name: '', iban: '', bic: '', notes: '', is_default: false, active: true };
+
+function BankAccounts({ company }) {
+  const toast = useToast();
+  const { data, reload } = useApi(`/companies/${company.id}/bank-accounts`);
+  const [edit, setEdit] = useState(null);
+  const [err, setErr] = useState(null);
+  const save = async () => {
+    setErr(null);
+    const b = { ...edit }; delete b.id; delete b.company_id; delete b.created_at;
+    for (const k of ['bank_name', 'bic', 'notes']) if (b[k] === '') b[k] = null;
+    try {
+      if (edit.id) await api.put(`/companies/${company.id}/bank-accounts/${edit.id}`, b); else await api.post(`/companies/${company.id}/bank-accounts`, b);
+      toast('Conto salvato'); setEdit(null); reload();
+    } catch (e) { setErr(e); }
+  };
+  const f = (k, label, extra = {}) => <Field label={label}><input value={edit[k] ?? ''} onChange={(e) => setEdit({ ...edit, [k]: e.target.value })} {...extra} /></Field>;
+  return (
+    <div style={{ marginTop: 12, borderTop: '1px solid var(--line)', paddingTop: 10 }}>
+      <div className="row" style={{ justifyContent: 'space-between' }}><div className="small strong">Conti correnti per gli accrediti</div><button className="btn sm ghost" onClick={() => setEdit({ ...emptyAcc, is_default: !(data || []).length })}>+ Conto</button></div>
+      {!data ? null : !data.length ? <div className="small red" style={{ marginTop: 4 }}>Nessun conto: gli accrediti non potranno essere attribuiti a un conto specifico.</div> : (
+        <table className="t" style={{ marginTop: 6 }}><tbody>{data.map((a) => (
+          <tr key={a.id} className={a.active ? '' : 'muted'}>
+            <td><b>{a.label}</b>{a.is_default && <Badge tone="teal">predefinito</Badge>}{!a.active && <Badge tone="red">disattivo</Badge>}<div className="mono small">{a.iban}</div>{a.bank_name && <div className="small muted">{a.bank_name}</div>}</td>
+            <td className="num"><button className="btn sm ghost" onClick={() => setEdit({ ...emptyAcc, ...Object.fromEntries(Object.entries(a).map(([k, v]) => [k, v ?? ''])), is_default: !!a.is_default, active: !!a.active })}>Modifica</button></td>
+          </tr>))}</tbody></table>
+      )}
+      {edit && (
+        <Modal title={edit.id ? 'Modifica conto corrente' : 'Nuovo conto corrente'} onClose={() => setEdit(null)} footer={<><button className="btn ghost" onClick={() => setEdit(null)}>Annulla</button><button className="btn" disabled={!edit.label || !edit.iban} onClick={save}>Salva</button></>}>
+          <ErrorBox error={err} />
+          <div className="form-grid">
+            {f('label', 'Etichetta (es. Conto operativo, Banco Fiorentino)')}{f('bank_name', 'Banca')}
+            {f('iban', 'IBAN', { className: 'mono', style: { textTransform: 'uppercase' } })}{f('bic', 'BIC (facoltativo)')}
+            <Field label="Note" className="span2"><input value={edit.notes ?? ''} onChange={(e) => setEdit({ ...edit, notes: e.target.value })} /></Field>
+            <label className="f inline"><input type="checkbox" checked={!!edit.is_default} onChange={(e) => setEdit({ ...edit, is_default: e.target.checked })} />Conto predefinito per gli accrediti</label>
+            {edit.id && <label className="f inline"><input type="checkbox" checked={!!edit.active} onChange={(e) => setEdit({ ...edit, active: e.target.checked })} />Conto attivo</label>}
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
 const empty = { code: '', name: '', vat_number: '', tax_code: '', address: '', zip: '', city: '', province: '', phone: '', email: '', pec: '', website: '', letterhead_footer: '', iban: '', bic: '', sepa_mandate_id: '', sepa_mandate_date: '', active: true };
 
 export default function Companies() {
@@ -33,7 +76,7 @@ export default function Companies() {
   return (
     <div className="page">
       <div className="page-head">
-        <div><h1>{sup ? 'Aziende della rete' : 'La tua azienda'}</h1><div className="sub">Anagrafica, carta intestata della distinta e dati per l'addebito SEPA</div></div>
+        <div><h1>{sup ? 'Aziende della rete' : 'La tua azienda'}</h1><div className="sub">Anagrafica, carta intestata della distinta, conti correnti per gli accrediti e dati per l'addebito SEPA</div></div>
         {sup && <button className="btn" onClick={() => setEdit({ ...empty })}>+ Nuova azienda</button>}
       </div>
       {!data ? <Loading /> : !data.length ? <div className="card"><Empty>Nessuna azienda</Empty></div> : (
@@ -51,6 +94,7 @@ export default function Companies() {
                   {sup && !c.is_franchisor && <div style={{ marginTop: 4 }}>{c.iban && c.sepa_mandate_id ? <Badge tone="green">Mandato SEPA {c.sepa_mandate_id}</Badge> : <Badge tone="red">Mandato SEPA mancante</Badge>}</div>}
                 </div>
               </div>
+              <BankAccounts company={c} />
             </Card>
           ))}
         </div>

@@ -17,7 +17,7 @@ export default function NcDetail() {
   const [modal, setModal] = useState(null);
   if (error) return <div className="page"><ErrorBox error={error} /></div>;
   if (!n) return <div className="page"><Loading /></div>;
-  const admin = can(user, 'SUPERADMIN', 'ADMIN');
+  const admin = can(user, 'SUPERADMIN', 'ADMIN', 'CASSIERE', 'FINANCE');
   const mine = n.created_by === user.id || user.role === 'SUPERADMIN';
   const send = async () => {
     setErr(null);

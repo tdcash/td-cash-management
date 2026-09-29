@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom';
-import { AuthProvider, useAuth, can } from './auth.jsx';
+import { AuthProvider, useAuth, can, canReview, canFinance, canCount } from './auth.jsx';
 import { ToastProvider, Icon, Loading, useApi, BusyBar } from './components/ui.jsx';
 import { ROLE } from './format.js';
 import Login from './pages/Login.jsx';
@@ -15,7 +15,11 @@ import Stats from './pages/Stats.jsx';
 import Reconcile from './pages/Reconcile.jsx';
 import Royalty from './pages/Royalty.jsx';
 import SiteRoyalty from './pages/SiteRoyalty.jsx';
-import Deposits from './pages/Deposits.jsx';
+import Safe from './pages/Safe.jsx';
+import DepositsList from './pages/DepositsList.jsx';
+import Credits from './pages/Credits.jsx';
+import Review from './pages/Review.jsx';
+import DailyCheck from './pages/DailyCheck.jsx';
 import Companies from './pages/Companies.jsx';
 import Sites from './pages/Sites.jsx';
 import Users from './pages/Users.jsx';
@@ -33,6 +37,9 @@ function Shell() {
   const openNc = nc.data?.length || 0;
   const admin = can(user, 'SUPERADMIN', 'ADMIN');
   const sup = can(user, 'SUPERADMIN');
+  const reviewer = canReview(user);
+  const finance = canFinance(user);
+  const counter = canCount(user);
   const L = ({ to, icon, children, count, end }) => (
     <NavLink to={to} end={end}><Icon name={icon} />{children}{count ? <span className="count">{count}</span> : null}</NavLink>
   );
@@ -46,12 +53,23 @@ function Shell() {
             <L to="/statistiche" icon="chart">Statistiche incassi</L>
             <L to="/canoni" icon="percent">Royalty di sede</L>
           </> : <>
-          <div className="group">Operatività</div>
+          <div className="group">Rendicontazione</div>
           <L to="/" icon="home" end>Cruscotto</L>
-          <L to="/rendiconti/nuovo" icon="plus">Nuovo rendiconto</L>
+          {counter && <L to="/rendiconti/nuovo" icon="plus">Nuovo rendiconto</L>}
           <L to="/rendiconti" icon="cash" end>Rendiconti</L>
-          {admin && <L to="/versamenti" icon="shield">Cassaforte e versamenti</L>}
-          <L to="/nc" icon="alert" count={openNc}>Errori e NC</L>
+          {!reviewer && <L to="/nc" icon="alert" count={openNc}>Errori e NC</L>}
+          {reviewer && <>
+            <div className="group">Revisione e approvazione</div>
+            <L to="/revisione" icon="check">Revisione e approvazione</L>
+            <L to="/nc" icon="alert" count={openNc}>Errori e NC</L>
+            {admin && <L to="/controllo" icon="list">Controllo giornaliero</L>}
+          </>}
+          {finance && <>
+            <div className="group">Finance</div>
+            <L to="/cassaforte" icon="shield">Cassaforte</L>
+            <L to="/versamenti" icon="truck">Versamento al portavalori</L>
+            <L to="/accrediti" icon="bank">Conferma dell'accredito</L>
+          </>}
           <div className="group">Analisi</div>
           <L to="/statistiche" icon="chart">Statistiche</L>
           {admin && <L to="/canoni" icon="percent">Royalty di sede</L>}
@@ -88,7 +106,11 @@ function Shell() {
           <Route path="/rendiconti" element={<Reports />} />
           <Route path="/rendiconti/nuovo" element={<NewReport />} />
           <Route path="/rendiconti/:id" element={<ReportEdit />} />
-          {admin && <Route path="/versamenti" element={<Deposits />} />}
+          {admin && <Route path="/controllo" element={<DailyCheck />} />}
+          {reviewer && <Route path="/revisione" element={<Review />} />}
+          {finance && <Route path="/cassaforte" element={<Safe />} />}
+          {finance && <Route path="/versamenti" element={<DepositsList />} />}
+          {finance && <Route path="/accrediti" element={<Credits />} />}
           <Route path="/nc" element={<NcList />} />
           <Route path="/nc/:id" element={<NcDetail />} />
           <Route path="/statistiche" element={<Stats />} />

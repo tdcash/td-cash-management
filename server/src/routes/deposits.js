@@ -2,12 +2,12 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { one, many, q, tx } from '../db.js';
 import { ah, bad, notFound, audit, parse, eur, itDate, todayRome, r2 } from '../lib/util.js';
-import { requireRole, assertCompany, isSuper, Params } from '../lib/access.js';
+import { requireRole, assertCompany, isSuper, Params, FINANCE_ROLES } from '../lib/access.js';
 import { buildDepositPdf } from '../pdf/versamento.js';
 
 // Versamenti al portavalori: livello azienda, solo rendiconti verificati (in cassaforte)
 const r = Router();
-r.use(requireRole('SUPERADMIN', 'ADMIN'));
+r.use(requireRole(...FINANCE_ROLES));
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const ENVELOPE_RE = /^[A-Za-z0-9-]{6,40}$/;
 
@@ -37,9 +37,12 @@ r.get('/', ah(async (req, res) => {
   const P = new Params();
   const where = [isSuper(req.user) ? 'TRUE' : `d.company_id = ${P.add(req.user.company_id)}`];
   if (req.query.company_id) where.push(`d.company_id = ${P.add(Number(req.query.company_id))}`);
-  res.json(await many(`SELECT d.id, d.company_id, d.number, d.deposit_date, d.total_amount, d.envelopes, d.operator_name, d.picked_at, d.status, d.bank_amount, d.bank_date, d.notes, d.created_at,
-      c.name AS company_name, u.full_name AS created_by_name, (SELECT count(*)::int FROM cash_reports r WHERE r.deposit_id=d.id) AS reports_count
-    FROM cash_deposits d JOIN companies c ON c.id=d.company_id LEFT JOIN users u ON u.id=d.created_by WHERE ${where.join(' AND ')} ORDER BY d.deposit_date DESC, d.id DESC LIMIT 500`, P.values));
+  if (req.query.status) where.push(`d.status = ANY(${P.add(String(req.query.status).split(','))}::text[])`);
+  res.json(await many(`SELECT d.id, d.company_id, d.number, d.deposit_date, d.total_amount, d.envelopes, d.operator_name, d.picked_at, d.status, d.bank_amount, d.bank_date, d.bank_reference, d.notes, d.created_at,
+      c.name AS company_name, u.full_name AS created_by_name, (SELECT count(*)::int FROM cash_reports r WHERE r.deposit_id=d.id) AS reports_count,
+      ba.label AS bank_account_label, ba.iban AS bank_account_iban, ub.full_name AS bank_confirmed_by_name
+    FROM cash_deposits d JOIN companies c ON c.id=d.company_id LEFT JOIN users u ON u.id=d.created_by LEFT JOIN company_bank_accounts ba ON ba.id=d.bank_account_id LEFT JOIN users ub ON ub.id=d.bank_confirmed_by
+    WHERE ${where.join(' AND ')} ORDER BY d.deposit_date DESC, d.id DESC LIMIT 500`, P.values));
 }));
 
 async function loadDeposit(req, id) {
@@ -49,9 +52,9 @@ async function loadDeposit(req, id) {
   return d;
 }
 async function fullDeposit(id) {
-  const d = await one(`SELECT d.id, d.company_id, d.number, d.deposit_date, d.total_amount, d.envelopes, d.operator_name, d.picked_at, d.status, d.bank_amount, d.bank_date, d.notes, d.created_at,
-      c.name AS company_name, u.full_name AS created_by_name, (d.slip_pdf IS NOT NULL) AS has_pdf
-    FROM cash_deposits d JOIN companies c ON c.id=d.company_id LEFT JOIN users u ON u.id=d.created_by WHERE d.id=$1`, [id]);
+  const d = await one(`SELECT d.id, d.company_id, d.number, d.deposit_date, d.total_amount, d.envelopes, d.operator_name, d.picked_at, d.status, d.bank_amount, d.bank_date, d.bank_reference, d.bank_account_id, d.notes, d.created_at,
+      c.name AS company_name, u.full_name AS created_by_name, (d.slip_pdf IS NOT NULL) AS has_pdf, ba.label AS bank_account_label, ba.iban AS bank_account_iban, ub.full_name AS bank_confirmed_by_name
+    FROM cash_deposits d JOIN companies c ON c.id=d.company_id LEFT JOIN users u ON u.id=d.created_by LEFT JOIN company_bank_accounts ba ON ba.id=d.bank_account_id LEFT JOIN users ub ON ub.id=d.bank_confirmed_by WHERE d.id=$1`, [id]);
   d.reports = await many(`SELECT r.id, r.report_date, r.envelope_code, r.cash_to_deposit, r.verified_amount, s.name AS site_name FROM cash_reports r JOIN sites s ON s.id=r.site_id WHERE r.deposit_id=$1 ORDER BY r.report_date, s.name`, [id]);
   d.events = await many('SELECT e.*, u.full_name FROM deposit_events e LEFT JOIN users u ON u.id=e.user_id WHERE deposit_id=$1 ORDER BY at', [id]);
   return d;
@@ -132,11 +135,19 @@ r.post('/:id/pickup', ah(async (req, res) => {
 r.post('/:id/bank', ah(async (req, res) => {
   const d = await loadDeposit(req, Number(req.params.id));
   if (d.status === 'ACCREDITATO') throw bad('Accredito già confermato');
-  const b = parse(z.object({ amount: z.number().min(0), date: isoDate }), req.body);
+  if (d.status !== 'RITIRATO') throw bad('L\'accredito si conferma dopo il ritiro del portavalori');
+  const b = parse(z.object({ amount: z.number().min(0), date: isoDate, bank_account_id: z.number().int().nullable().optional(), reference: z.string().trim().max(120).nullable().optional() }), req.body);
+  // conto corrente: obbligatorio se l'azienda ne ha censito almeno uno attivo
+  const accounts = await many('SELECT id, label, iban FROM company_bank_accounts WHERE company_id=$1 AND active', [d.company_id]);
+  let account = null;
+  if (accounts.length) {
+    account = accounts.find((a) => a.id === b.bank_account_id);
+    if (!account) throw bad('Indica il conto corrente su cui è avvenuto l\'accredito');
+  }
   const diff = r2(b.amount - Number(d.total_amount));
   await tx(async (c) => {
-    await c.query(`UPDATE cash_deposits SET status='ACCREDITATO', bank_amount=$2, bank_date=$3, bank_confirmed_by=$4, updated_at=now() WHERE id=$1`, [d.id, b.amount, b.date, req.user.id]);
-    await devent(c, d.id, 'ACCREDITATO', `Accredito ${eur(b.amount)} del ${itDate(b.date)}${diff ? `, differenza ${eur(diff)}` : ''}`, req.user.id);
+    await c.query(`UPDATE cash_deposits SET status='ACCREDITATO', bank_amount=$2, bank_date=$3, bank_confirmed_by=$4, bank_account_id=$5, bank_reference=$6, updated_at=now() WHERE id=$1`, [d.id, b.amount, b.date, req.user.id, account?.id || null, b.reference || null]);
+    await devent(c, d.id, 'ACCREDITATO', `Accredito ${eur(b.amount)} del ${itDate(b.date)}${account ? ` su ${account.label} (${account.iban})` : ''}${b.reference ? `, rif. ${b.reference}` : ''}${diff ? `, differenza ${eur(diff)}` : ''}`, req.user.id);
     if (diff !== 0) {
       await c.query(`INSERT INTO nonconformities (company_id, site_id, kind, severity, title, description, created_by) VALUES ($1,NULL,'ERRORE',$2,$3,$4,$5)`,
         [d.company_id, Math.abs(diff) >= 50 ? 'ALTA' : 'MEDIA', `Differenza accredito versamento ${d.number}: ${eur(diff)}`,
@@ -153,7 +164,7 @@ r.post('/:id/undo', ah(async (req, res) => {
   const b = parse(z.object({ reason: z.string().trim().min(5).max(500) }), req.body);
   await tx(async (c) => {
     if (d.status === 'ACCREDITATO') {
-      await c.query(`UPDATE cash_deposits SET status='RITIRATO', bank_amount=NULL, bank_date=NULL, bank_confirmed_by=NULL, updated_at=now() WHERE id=$1`, [d.id]);
+      await c.query(`UPDATE cash_deposits SET status='RITIRATO', bank_amount=NULL, bank_date=NULL, bank_confirmed_by=NULL, bank_account_id=NULL, bank_reference=NULL, updated_at=now() WHERE id=$1`, [d.id]);
       await devent(c, d.id, 'ANNULLATO', `Accredito annullato. ${b.reason}`, req.user.id);
     } else if (d.status === 'RITIRATO') {
       await c.query(`UPDATE cash_deposits SET status='PREPARATO', operator_name=NULL, picked_at=NULL, updated_at=now() WHERE id=$1`, [d.id]);
@@ -164,7 +175,7 @@ r.post('/:id/undo', ah(async (req, res) => {
   res.json(await fullDeposit(d.id));
 }));
 
-r.delete('/:id', ah(async (req, res) => {
+r.delete('/:id', requireRole('SUPERADMIN', 'ADMIN'), ah(async (req, res) => {
   const d = await loadDeposit(req, Number(req.params.id));
   const reason = String(req.body?.reason || '').trim();
   if (reason.length < 5) throw bad('Indica la motivazione (almeno 5 caratteri)');

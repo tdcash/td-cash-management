@@ -27,3 +27,7 @@ export function AuthProvider({ children }) {
 
 export const useAuth = () => useContext(AuthCtx);
 export const can = (user, ...roles) => roles.includes(user?.role);
+
+export const canReview = (u) => ['SUPERADMIN', 'ADMIN', 'CASSIERE'].includes(u?.role);
+export const canFinance = (u) => ['SUPERADMIN', 'ADMIN', 'FINANCE'].includes(u?.role);
+export const canCount = (u) => ['SUPERADMIN', 'ADMIN', 'OPERATOR'].includes(u?.role);

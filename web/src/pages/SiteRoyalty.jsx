@@ -16,7 +16,7 @@ export default function SiteRoyalty() {
   const [err, setErr] = useState(null);
   const [unconf, setUnconf] = useState(null);
   const { data: d, error, reload } = useApi(`/canoni/summary${qs(f)}`);
-  const confirm = async (r) => { setErr(null); try { await api.post(`/canoni/sites/${r.site_id}/confirm`, { period: f.period }); toast('Report confermato'); reload(); } catch (e) { setErr(e); } };
+  const confirm = async (r) => { setErr(null); try { const out = await api.post(`/canoni/sites/${r.site_id}/confirm`, { period: f.period }); toast(out.mail?.status === 'INVIATA' ? 'Report confermato e inviato alla struttura ospitante' : out.mail?.status === 'NON_CONFIGURATA' ? 'Report confermato (email non configurata: invio registrato)' : `Report confermato. Email non inviata: ${out.mail?.error || 'destinatario mancante'}`, out.mail?.status === 'INVIATA' ? 'ok' : 'err'); reload(); } catch (e) { setErr(e); } };
   const rows = (d?.rows || []).filter((r) => r.pending || r.confirmed || Number(r.royalty_fixed_monthly) > 0 || Number(r.royalty_pct) > 0 || r.host_name);
   const others = (d?.rows || []).length - rows.length;
   return (

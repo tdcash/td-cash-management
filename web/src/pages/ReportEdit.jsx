@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
-import { useAuth, can } from '../auth.jsx';
+import { useAuth, can, canReview, canCount } from '../auth.jsx';
 import { useApi, Card, Field, ErrorBox, Loading, StatusBadge, Modal, PromptModal, MoneyInput, Badge, Icon, useToast } from '../components/ui.jsx';
 import { ScanButton } from '../components/scan.jsx';
 import { eur, itDate, itDateTime, weekday, today, CIRCUITS, NC_STATUS, SEVERITY, BANKNOTES, COINS, dkey, STATUS } from '../format.js';
@@ -36,6 +36,8 @@ export default function ReportEdit() {
   const { user } = useAuth();
   const toast = useToast();
   const admin = can(user, 'SUPERADMIN', 'ADMIN');
+  const reviewer = canReview(user);
+  const counter = canCount(user);
   const { data: rep, error, reload } = useApi(`/reports/${id}`);
   const sites = useApi('/sites');
   const [form, setForm] = useState(null);
@@ -54,7 +56,7 @@ export default function ReportEdit() {
 
   const site = sites.data?.find((s) => s.id === rep?.site_id);
   const terminals = (site?.pos_terminals || '').split(',').map((t) => t.trim()).filter(Boolean);
-  const editable = rep?.status === 'DRAFT';
+  const editable = rep?.status === 'DRAFT' && counter;
 
   const t = useMemo(() => {
     if (!form || !rep) return null;
@@ -119,7 +121,7 @@ export default function ReportEdit() {
         </div>
         <div className="row">
           {rep.has_pdf && <button className="btn ghost" onClick={openPdf}><Icon name="print" size={17} />Stampa distinta</button>}
-          {admin && <button className="btn ghost" onClick={() => setModal('nc')}><Icon name="alert" size={17} />Segnala errore / NC</button>}
+          {reviewer && <button className="btn ghost" onClick={() => setModal('nc')}><Icon name="alert" size={17} />Segnala errore / NC</button>}
           {['PROCESSED', 'PICKED_UP', 'DEPOSITED'].includes(rep.status) && <button className="btn ghost" onClick={openCustody}><Icon name="shield" size={17} />Catena di custodia</button>}
           {(admin || (editable && rep.slip_revision === 0 && rep.created_by === user.id)) && (
             <button className="btn danger" onClick={() => setModal('delete')}><Icon name="trash" size={16} />{editable ? 'Elimina bozza' : 'Elimina rendiconto'}</button>
@@ -136,8 +138,8 @@ export default function ReportEdit() {
       <ErrorBox error={err} />
       {rep.status !== 'DRAFT' && <div className={`alert ${rep.status === 'DEPOSITED' ? 'ok' : 'info'}`} style={{ marginBottom: 14 }}>
         {rep.status === 'CLOSED' && 'Busta registrata. Elabora la distinta e stampala in doppia copia: firmi entrambe, una va in busta prima di sigillarla, una resta in sede.'}
-        {rep.status === 'PROCESSED' && (admin ? 'Distinta pronta. Quando la logistica ti consegna la busta, registra qui l\'operazione logistica con il nome dell\'operatore.' : 'Distinta pronta. Stampa il modulo Catena di custodia e consegna busta e modulo alla logistica. Il seguito è a carico dell\'amministratore di sede.')}
-        {rep.status === 'PICKED_UP' && (admin ? 'Busta in cassaforte. Esegui il riconteggio e registra l\'importo verificato: chiude il ciclo del rendiconto.' : 'Busta in cassaforte, in attesa di riconteggio da parte dell\'amministratore.')}
+        {rep.status === 'PROCESSED' && (reviewer ? 'Distinta pronta. Quando la logistica ti consegna la busta, registra qui l\'operazione logistica con il nome dell\'operatore.' : 'Distinta pronta. Stampa il modulo Catena di custodia e consegna busta e modulo alla logistica. Il seguito è a carico del cassiere o dell\'amministratore di sede.')}
+        {rep.status === 'PICKED_UP' && (reviewer ? 'Busta in cassaforte. Esegui il riconteggio e registra l\'importo verificato: chiude il ciclo del rendiconto.' : 'Busta in cassaforte, in attesa di riconteggio da parte del cassiere.')}
         {rep.status === 'VERIFIED' && `Verificato e in cassaforte${rep.verified_amount != null ? ` per ${eur(rep.verified_amount)}` : ''}. Disponibile per il prossimo versamento al portavalori.`}
         {rep.status === 'DEPOSITED' && <>Versato al portavalori con il versamento <b>{rep.deposit_number}</b>{rep.deposit_status ? ` (${rep.deposit_status.toLowerCase()})` : ''}.</>}
       </div>}
@@ -279,23 +281,23 @@ export default function ReportEdit() {
                   {t.deposit > 0 ? 'Registra busta Mondialpol →' : 'Chiudi senza versamento →'}
                 </button>
               </>}
-              {rep.status === 'CLOSED' && <>
+              {rep.status === 'CLOSED' && counter && <>
                 <button className="btn lg" style={{ background: 'var(--blue)', color: 'var(--jet)' }} disabled={busy} onClick={() => run(async () => { await api.post(`/reports/${id}/process`); openPdf(); }, 'Distinta elaborata')}>Elabora e stampa distinta →</button>
                 <button className="btn ghost" style={{ color: '#fff', background: 'transparent', borderColor: 'rgba(255,255,255,.3)' }} disabled={busy} onClick={() => run(() => api.post(`/reports/${id}/unlock`), 'Rendiconto sbloccato')}>Annulla busta e modifica</button>
               </>}
               {rep.status === 'PROCESSED' && <>
-                {admin && Number(rep.cash_to_deposit) > 0 && <button className="btn lg" style={{ background: 'var(--blue)', color: 'var(--jet)' }} onClick={() => setModal('pickup')}>Registra operazione logistica →</button>}
-                {admin && Number(rep.cash_to_deposit) === 0 && <button className="btn lg" style={{ background: 'var(--silk)', color: 'var(--jet)' }} onClick={() => setModal('verify')}>Chiudi con verifica (nessun contante)</button>}
+                {reviewer && Number(rep.cash_to_deposit) > 0 && <button className="btn lg" style={{ background: 'var(--blue)', color: 'var(--jet)' }} onClick={() => setModal('pickup')}>Registra operazione logistica →</button>}
+                {reviewer && Number(rep.cash_to_deposit) === 0 && <button className="btn lg" style={{ background: 'var(--silk)', color: 'var(--jet)' }} onClick={() => setModal('verify')}>Chiudi con verifica (nessun contante)</button>}
                 <button className="btn ghost" style={{ color: '#fff', background: 'transparent', borderColor: 'rgba(255,255,255,.3)' }} onClick={openCustody}>Stampa catena di custodia</button>
                 <button className="btn ghost" style={{ color: '#fff', background: 'transparent', borderColor: 'rgba(255,255,255,.3)' }} onClick={openPdf}>Ristampa distinta</button>
               </>}
-              {admin && rep.status === 'PICKED_UP' && (
+              {reviewer && rep.status === 'PICKED_UP' && (
                 <button className="btn lg" style={{ background: 'var(--silk)', color: 'var(--jet)' }} onClick={() => setModal('verify')}>Riconteggio e verifica →</button>
               )}
-              {admin && rep.status === 'VERIFIED' && (
-                <Link className="btn lg" style={{ background: 'var(--silk)', color: 'var(--jet)' }} to="/versamenti">Vai a cassaforte e versamenti</Link>
+              {can(user, 'SUPERADMIN', 'ADMIN') && rep.status === 'VERIFIED' && (
+                <Link className="btn lg" style={{ background: 'var(--silk)', color: 'var(--jet)' }} to="/cassaforte">Vai alla cassaforte</Link>
               )}
-              {admin && ['CLOSED', 'PROCESSED', 'PICKED_UP', 'VERIFIED'].includes(rep.status) && (
+              {reviewer && ['CLOSED', 'PROCESSED', 'PICKED_UP', 'VERIFIED'].includes(rep.status) && (
                 <button className="btn ghost" style={{ color: '#ffd9d4', background: 'transparent', borderColor: 'rgba(255,180,171,.4)' }} onClick={() => setModal('undo')}>Annulla ultimo passaggio</button>
               )}
             </div>

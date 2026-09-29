@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '../auth.jsx';
+import { useAuth, canCount, canReview, canFinance } from '../auth.jsx';
 import { useApi, Kpi, Card, Loading, ErrorBox, StatusBadge, Empty, Badge } from '../components/ui.jsx';
 import { ScopeFilter, PeriodFilter, PRESETS } from '../components/filters.jsx';
 import { DailyStacked, Legend, SitesBars } from '../components/charts.jsx';
@@ -14,6 +14,7 @@ export default function Dashboard() {
   const s = useApi(`/stats/summary${qs(f)}`);
   const todayRows = useApi('/stats/today');
   const d = s.data;
+  const counter = canCount(user);
   const pct = (v) => (d?.totals.total ? (Number(v) / d.totals.total) * 100 : 0);
   const pending = (d?.by_status?.CLOSED || 0) + (d?.by_status?.DRAFT || 0) + (d?.by_status?.PROCESSED || 0) + (d?.by_status?.PICKED_UP || 0);
 
@@ -22,9 +23,9 @@ export default function Dashboard() {
       <div className="page-head">
         <div>
           <h1>Buongiorno, {user.full_name.split(' ')[0]}</h1>
-          <div className="sub">{user.role === 'SUPERADMIN' ? 'Vista di rete: tutte le aziende e le sedi' : user.role === 'ADMIN' ? `Vista azienda: ${user.company_name}` : 'Le tue sedi'}</div>
+          <div className="sub">{user.role === 'SUPERADMIN' ? 'Vista di rete: tutte le aziende e le sedi' : ['ADMIN', 'FINANCE'].includes(user.role) ? `Vista azienda: ${user.company_name}` : 'Le tue sedi'}</div>
         </div>
-        <Link className="btn" to="/rendiconti/nuovo">+ Nuovo rendiconto</Link>
+        {counter ? <Link className="btn" to="/rendiconti/nuovo">+ Nuovo rendiconto</Link> : canReview(user) ? <Link className="btn" to="/revisione">Revisione e approvazione</Link> : canFinance(user) ? <Link className="btn" to="/cassaforte">Cassaforte</Link> : null}
       </div>
 
       <div className="filters">
@@ -54,7 +55,7 @@ export default function Dashboard() {
             {todayRows.data ? (
               <table className="t"><tbody>
                 {todayRows.data.map((r) => (
-                  <tr key={r.site_id} className="click" onClick={() => nav(r.report_id ? `/rendiconti/${r.report_id}` : `/rendiconti/nuovo?site=${r.site_id}`)}>
+                  <tr key={r.site_id} className="click" onClick={() => nav(r.report_id ? `/rendiconti/${r.report_id}` : counter ? `/rendiconti/nuovo?site=${r.site_id}` : '/rendiconti')}>
                     <td><div className="strong">{r.site_name}</div>{user.role === 'SUPERADMIN' && <div className="small muted">{r.company_name}</div>}</td>
                     <td className="num">{r.report_id ? <StatusBadge status={r.status} /> : r.operating ? <Badge tone="red">Da fare</Badge> : <Badge>Chiusa</Badge>}</td>
                   </tr>
@@ -91,7 +92,7 @@ export default function Dashboard() {
                 <tbody>{d.missing.map((m) => (
                   <tr key={`${m.site_id}-${m.date}`}>
                     <td>{weekday(m.date)} {itDate(m.date)}</td><td>{m.site_name}{user.role === 'SUPERADMIN' && <span className="small muted"> · {m.company_name}</span>}</td>
-                    <td className="num"><Link className="btn sm ghost" to={`/rendiconti/nuovo${qs({ site: m.site_id, date: m.date })}`}>Compila</Link></td>
+                    <td className="num">{counter && <Link className="btn sm ghost" to={`/rendiconti/nuovo${qs({ site: m.site_id, date: m.date })}`}>Compila</Link>}</td>
                   </tr>))}</tbody>
               </table></div>
             ) : <Empty>Tutti i giorni operativi sono rendicontati</Empty>}
