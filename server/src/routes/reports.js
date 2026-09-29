@@ -85,6 +85,7 @@ r.post('/', countOnly, ah(async (req, res) => {
   const d = parse(z.object({ site_id: z.number().int(), report_date: isoDate }), req.body);
   const site = await assertSite(req.user, d.site_id);
   if (!site.active) throw bad('Sede non attiva');
+  if (d.report_date < site.start_date) throw bad(`La sede ${site.name} è operativa dal ${itDate(site.start_date)}: nessun rendiconto atteso prima`);
   if (d.report_date > todayRome()) throw bad('Non si può rendicontare una data futura');
   const ex = await one('SELECT id FROM cash_reports WHERE site_id=$1 AND report_date=$2', [d.site_id, d.report_date]);
   if (ex) return res.status(409).json({ error: 'Esiste già un rendiconto per questa sede e data', id: ex.id });

@@ -2,10 +2,10 @@ import React, { useState } from 'react';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { useApi, Card, Field, Loading, ErrorBox, Empty, Badge, Modal, MoneyInput, useToast } from '../components/ui.jsx';
-import { eur, itDateTime } from '../format.js';
+import { eur, itDate, itDateTime } from '../format.js';
 
 const DAYS = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom'];
-const empty = { company_id: '', code: '', name: '', address: '', city: '', province: '', site_email: '', host_email: '', cash_float: 0, operating_days: '1111110', pos_terminals: '', active: true, float_reason: '', host_name: '', host_vat: '', royalty_fixed_monthly: 0, royalty_pct: 0, royalty_base: 'TOTALE', royalty_vat_rate: 0, royalty_notes: '' };
+const empty = { company_id: '', code: '', name: '', address: '', city: '', province: '', site_email: '', host_email: '', cash_float: 0, start_date: '', operating_days: '1111110', pos_terminals: '', active: true, float_reason: '', host_name: '', host_vat: '', royalty_fixed_monthly: 0, royalty_pct: 0, royalty_base: 'TOTALE', royalty_vat_rate: 0, royalty_notes: '' };
 const BASES = { TOTALE: 'Totale incassi (contanti, POS, bonifici)', CONTANTI_POS: 'Contanti e POS', CONTANTI: 'Solo contanti' };
 
 export default function Sites() {
@@ -19,7 +19,7 @@ export default function Sites() {
   const [err, setErr] = useState(null);
   const save = async () => {
     setErr(null);
-    const b = { ...edit, company_id: Number(edit.company_id || user.company_id), cash_float: Number(edit.cash_float), address: edit.address || null, city: edit.city || null, province: edit.province || null, site_email: edit.site_email || null, host_email: edit.host_email || null, pos_terminals: edit.pos_terminals || null,
+    const b = { ...edit, company_id: Number(edit.company_id || user.company_id), cash_float: Number(edit.cash_float), address: edit.address || null, city: edit.city || null, province: edit.province || null, site_email: edit.site_email || null, host_email: edit.host_email || null, start_date: String(edit.start_date || '').slice(0, 10), pos_terminals: edit.pos_terminals || null,
       host_name: edit.host_name || null, host_vat: edit.host_vat || null, royalty_fixed_monthly: Number(edit.royalty_fixed_monthly) || 0, royalty_pct: Number(edit.royalty_pct) || 0, royalty_vat_rate: Number(edit.royalty_vat_rate) || 0, royalty_notes: edit.royalty_notes || null };
     delete b.company_name; delete b.company_code; delete b.users_count; delete b.created_at; delete b.updated_at;
     try {
@@ -43,7 +43,7 @@ export default function Sites() {
             <tr key={s.id}>
               <td className="mono">{s.code}</td><td><b>{s.name}</b><div className="small muted">{[s.address, s.city, s.province && `(${s.province})`].filter(Boolean).join(' ')}</div>{s.site_email ? <div className="small muted">{s.site_email}</div> : <div className="small red">email sede mancante</div>}</td>
               {sup && <td>{s.company_name}</td>}
-              <td>{DAYS.map((d, i) => <span key={d} className="chip" style={{ opacity: s.operating_days[i] === '1' ? 1 : .3 }}>{d}</span>)}</td>
+              <td>{DAYS.map((d, i) => <span key={d} className="chip" style={{ opacity: s.operating_days[i] === '1' ? 1 : .3 }}>{d}</span>)}<div className="small muted">dal {itDate(s.start_date)}</div></td>
               <td>{s.host_name || <span className="muted">–</span>}{s.host_email && <div className="small muted">{s.host_email}</div>}</td>
               <td className="small">{Number(s.royalty_fixed_monthly) > 0 && <div>{eur(s.royalty_fixed_monthly)}/mese</div>}{Number(s.royalty_pct) > 0 && <div>{s.royalty_pct}% {s.royalty_base === 'TOTALE' ? 'sul totale' : s.royalty_base === 'CONTANTI_POS' ? 'su contanti e POS' : 'sui contanti'}</div>}{Number(s.royalty_fixed_monthly) > 0 || Number(s.royalty_pct) > 0 ? <div className="muted">IVA {s.royalty_vat_rate}%</div> : <span className="muted">nessuno</span>}</td>
               <td className="num strong">{eur(s.cash_float)} <button className="btn link small" onClick={() => setHist(s)}>storico</button></td>
@@ -54,7 +54,7 @@ export default function Sites() {
         </table></div></div>
       )}
       {edit && (
-        <Modal title={edit.id ? `Modifica ${edit.name}` : 'Nuova sede'} onClose={() => setEdit(null)} footer={<><button className="btn ghost" onClick={() => setEdit(null)}>Annulla</button><button className="btn" disabled={!edit.name || (!edit.id && !edit.code) || (floatChanged && !edit.float_reason)} onClick={save}>Salva</button></>}>
+        <Modal title={edit.id ? `Modifica ${edit.name}` : 'Nuova sede'} onClose={() => setEdit(null)} footer={<><button className="btn ghost" onClick={() => setEdit(null)}>Annulla</button><button className="btn" disabled={!edit.name || !edit.start_date || (!edit.id && !edit.code) || (floatChanged && !edit.float_reason)} onClick={save}>Salva</button></>}>
           <ErrorBox error={err} />
           <div className="form-grid">
             {sup && !edit.id && <Field label="Azienda"><select value={edit.company_id} onChange={(e) => setEdit({ ...edit, company_id: e.target.value })}>{(companies.data || []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></Field>}
@@ -69,6 +69,7 @@ export default function Sites() {
           </div>
           {floatChanged && <div style={{ marginTop: 12 }}><Field label={`Motivo variazione fondo cassa (${eur(orig.cash_float)} → ${eur(edit.cash_float)})`}><input value={edit.float_reason} onChange={(e) => setEdit({ ...edit, float_reason: e.target.value })} autoFocus /></Field></div>}
           <div style={{ marginTop: 12 }}>
+            <Field label="Data di avvio della sede" help="Primo giorno di lavoro: da questa data il sistema attende il rendiconto e segnala le mancanze"><input type="date" required value={edit.start_date ? String(edit.start_date).slice(0, 10) : ''} onChange={(e) => setEdit({ ...edit, start_date: e.target.value })} /></Field>
             <div className="small strong muted" style={{ marginBottom: 6 }}>Giorni operativi (attesi in rendicontazione)</div>
             <div className="row">{DAYS.map((d, i) => <label key={d} className="f inline"><input type="checkbox" checked={edit.operating_days[i] === '1'} onChange={(e) => { const a = edit.operating_days.split(''); a[i] = e.target.checked ? '1' : '0'; setEdit({ ...edit, operating_days: a.join('') }); }} />{d}</label>)}</div>
           </div>

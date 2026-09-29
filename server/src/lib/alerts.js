@@ -8,7 +8,7 @@ export async function missingReports(date, companyId = null) {
     FROM sites s JOIN companies c ON c.id=s.company_id
     WHERE s.active AND ($2::int IS NULL OR s.company_id=$2)
       AND substr(s.operating_days, extract(isodow FROM $1::date)::int, 1) = '1'
-      AND s.created_at::date <= $1::date
+      AND s.start_date <= $1::date
       AND NOT EXISTS (SELECT 1 FROM cash_reports r WHERE r.site_id=s.id AND r.report_date=$1::date)
     ORDER BY c.name, s.name`, [date, companyId]);
 }

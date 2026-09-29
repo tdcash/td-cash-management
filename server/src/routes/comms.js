@@ -19,7 +19,7 @@ r.get('/daily', ah(async (req, res) => {
   if (req.query.company_id) where.push(`s.company_id = ${P.add(Number(req.query.company_id))}`);
   const d = P.add(date);
   const rows = await many(`SELECT s.id AS site_id, s.name AS site_name, s.code AS site_code, s.site_email, s.host_email, s.company_id, c.name AS company_name,
-      substr(s.operating_days, extract(isodow FROM ${d}::date)::int, 1) = '1' AS operating,
+      (substr(s.operating_days, extract(isodow FROM ${d}::date)::int, 1) = '1' AND s.start_date <= ${d}::date) AS operating, s.start_date,
       r.id AS report_id, r.status, r.cash_to_deposit, r.pos_total, r.transfer_total, r.updated_at, u.full_name AS created_by_name,
       (SELECT status FROM email_log e WHERE e.ref_key = 'SOLLECITO:' || s.id || ':' || ${d} ORDER BY e.created_at DESC LIMIT 1) AS alert_status,
       (SELECT created_at FROM email_log e WHERE e.ref_key = 'SOLLECITO:' || s.id || ':' || ${d} ORDER BY e.created_at DESC LIMIT 1) AS alert_at

@@ -98,6 +98,7 @@ const siteSchema = z.object({
   site_email: opt(z.string().email().or(z.literal(''))),
   host_email: opt(z.string().email().or(z.literal(''))),
   cash_float: z.number().min(0).max(100000),
+  start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data di avvio non valida'),
   operating_days: z.string().regex(/^[01]{7}$/).default('1111110'),
   pos_terminals: opt(z.string().max(300)),
   active: z.boolean().default(true),
@@ -182,10 +183,10 @@ r.post('/sites', requireRole('SUPERADMIN', 'ADMIN'), ah(async (req, res) => {
   assertCompany(req.user, d.company_id);
   if (await one('SELECT 1 FROM sites WHERE company_id=$1 AND code=$2', [d.company_id, d.code])) throw bad('Codice sede già esistente per questa azienda');
   const row = await tx(async (c) => {
-    const s = (await c.query(`INSERT INTO sites (company_id, code, name, address, city, province, cash_float, operating_days, pos_terminals, active,
+    const s = (await c.query(`INSERT INTO sites (company_id, code, name, address, city, province, cash_float, start_date, operating_days, pos_terminals, active,
         host_name, host_vat, royalty_fixed_monthly, royalty_pct, royalty_base, royalty_vat_rate, royalty_notes, site_email, host_email)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING id`,
-    [d.company_id, d.code, d.name, d.address, d.city, d.province, d.cash_float, d.operating_days, d.pos_terminals, d.active,
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING id`,
+    [d.company_id, d.code, d.name, d.address, d.city, d.province, d.cash_float, d.start_date, d.operating_days, d.pos_terminals, d.active,
       d.host_name, d.host_vat, d.royalty_fixed_monthly, d.royalty_pct, d.royalty_base, d.royalty_vat_rate, d.royalty_notes, d.site_email || null, d.host_email || null])).rows[0];
     await c.query('INSERT INTO cash_float_history (site_id, old_value, new_value, changed_by, reason) VALUES ($1,NULL,$2,$3,$4)',
       [s.id, d.cash_float, req.user.id, 'Impostazione iniziale']);

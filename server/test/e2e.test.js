@@ -73,8 +73,11 @@ test('flusso completo', async (t) => {
     assert.equal(r.status, 201, JSON.stringify(r.data));
     ctx.company = r.data.id;
     r = await S.post('/api/sites', { company_id: ctx.company, code: 'BSL01', name: 'Borgo San Lorenzo centro', city: 'Borgo San Lorenzo', province: 'fi', cash_float: 150, pos_terminals: 'T100,T101' });
-    assert.equal(r.status, 201); ctx.site = r.data.id;
-    r = await S.post('/api/sites', { company_id: ctx.company, code: 'BSL02', name: 'Punto prelievo Vicchio', cash_float: 100 });
+    assert.equal(r.status, 400, 'data di avvio obbligatoria');
+    r = await S.post('/api/sites', { company_id: ctx.company, code: 'BSL01', name: 'Borgo San Lorenzo centro', city: 'Borgo San Lorenzo', province: 'fi', cash_float: 150, pos_terminals: 'T100,T101', start_date: '2026-08-01' });
+    assert.equal(r.status, 201, JSON.stringify(r.data)); ctx.site = r.data.id;
+    r = await S.post('/api/sites', { company_id: ctx.company, code: 'BSL02', name: 'Punto prelievo Vicchio', cash_float: 100, start_date: '2026-09-01' });
+    assert.equal(r.status, 201, JSON.stringify(r.data));
     ctx.site2 = r.data.id;
     r = await S.post('/api/users', { email: 'admin@bioscienze.it', full_name: 'Maria Rossi', role: 'ADMIN', company_id: ctx.company, auth_provider: 'LOCAL' });
     assert.equal(r.status, 201); ctx.adminPwd = r.data.temporaryPassword;
@@ -453,6 +456,11 @@ test('flusso completo', async (t) => {
     const iso = (d) => d.toISOString().slice(0, 10);
     let day = new Date(); if (day.getUTCDay() === 0) day = new Date(day.getTime() + 86400000);
     const D = iso(day);
+    // prima della data di avvio: nessun rendiconto atteso, né accettato
+    assert.equal((await O.post('/api/reports', { site_id: ctx.site, report_date: '2026-07-31' })).status, 400, 'rendiconto prima dell\'avvio rifiutato');
+    r = await A.get('/api/comms/daily?date=2026-08-20');
+    assert.equal(r.data.rows.find((x) => x.site_id === ctx.site2).operating, false, 'sede 2 non ancora avviata il 20/08');
+    assert.equal(r.data.rows.find((x) => x.site_id === ctx.site).operating, true);
     r = await A.get(`/api/comms/daily?date=${D}`);
     assert.equal(r.status, 200, JSON.stringify(r.data));
     assert.equal(r.data.summary.operating, 2);

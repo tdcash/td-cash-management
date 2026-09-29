@@ -65,7 +65,7 @@ r.get('/summary', ah(async (req, res) => {
   const mFrom = P2.add(from), mTo = P2.add(to < yesterday ? to : yesterday);
   const missing = await many(`SELECT s.id AS site_id, s.name AS site_name, c.name AS company_name, d::date AS date
     FROM sites s JOIN companies c ON c.id=s.company_id
-    CROSS JOIN LATERAL generate_series(greatest(${mFrom}::date, s.created_at::date), ${mTo}::date, interval '1 day') d
+    CROSS JOIN LATERAL generate_series(greatest(${mFrom}::date, s.start_date), ${mTo}::date, interval '1 day') d
     WHERE ${w2.join(' AND ')}
       AND substr(s.operating_days, extract(isodow FROM d)::int, 1) = '1'
       AND NOT EXISTS (SELECT 1 FROM cash_reports r WHERE r.site_id=s.id AND r.report_date=d::date)
@@ -108,7 +108,7 @@ r.get('/today', ah(async (req, res) => {
   const today = P.add(todayRome());
   res.json(await many(`SELECT s.id AS site_id, s.name AS site_name, s.code AS site_code, c.name AS company_name, s.cash_float,
       r.id AS report_id, r.status, (r.cash_to_deposit + r.pos_total + r.transfer_total) AS day_total,
-      substr(s.operating_days, extract(isodow FROM ${today}::date)::int, 1) = '1' AS operating
+      (substr(s.operating_days, extract(isodow FROM ${today}::date)::int, 1) = '1' AND s.start_date <= ${today}::date) AS operating, s.start_date
     FROM sites s JOIN companies c ON c.id=s.company_id
     LEFT JOIN cash_reports r ON r.site_id=s.id AND r.report_date=${today}::date
     WHERE ${siteScope(req.user, P)} AND s.active ORDER BY c.name, s.name`, P.values));

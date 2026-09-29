@@ -56,7 +56,7 @@ Ripristino di un backup: `docker compose exec -T db pg_restore -U cash -d cash -
 
 Controllo giornaliero: pagina dedicata per gli amministratori con lo stato di ogni sede per il giorno scelto (rendiconto inserito, in bozza, mancante, sede chiusa per calendario). Ogni mattina all'ora impostata (default 10:00) il sistema verifica il giorno precedente, invia un sollecito all'email di sede delle sedi mancanti e un riepilogo agli amministratori dell'azienda. Solleciti manuali per singola sede o per tutte le mancanti, comunicazioni libere a sede, struttura ospitante e operatori, con registro di tutti gli invii (esito, destinatari, allegato). Le segnalazioni aperte e le note notificano la sede; la conferma mensile delle royalty invia in automatico il report PDF all'email della struttura ospitante. Se l'invio non è configurato, tutto resta comunque registrato nel registro invii.
 
-Le email di sede e della struttura ospitante si impostano nell'anagrafica sede. Il controllo automatico richiede un'istanza sempre attiva (su Render: piano a pagamento, non il piano gratuito che dorme).
+Le email di sede e della struttura ospitante si impostano nell'anagrafica sede, insieme alla data di avvio: primo giorno di lavoro da cui il sistema attende il rendiconto (obbligatoria; prima di quella data nessuna mancanza viene segnalata e nessun rendiconto è accettato). Il controllo automatico richiede un'istanza sempre attiva (su Render: piano a pagamento, non il piano gratuito che dorme).
 
 ## Microsoft 365: accesso e invio email
 
