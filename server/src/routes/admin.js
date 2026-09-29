@@ -99,6 +99,7 @@ const siteSchema = z.object({
   host_email: opt(z.string().email().or(z.literal(''))),
   cash_float: z.number().min(0).max(100000),
   start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data di avvio non valida'),
+  ownership: z.enum(['PROPRIA', 'OSPITATA']).default('OSPITATA'),
   operating_days: z.string().regex(/^[01]{7}$/).default('1111110'),
   pos_terminals: opt(z.string().max(300)),
   active: z.boolean().default(true),
@@ -180,13 +181,14 @@ r.get('/sites/:id/float-history', requireRole('SUPERADMIN', 'ADMIN'), ah(async (
 
 r.post('/sites', requireRole('SUPERADMIN', 'ADMIN'), ah(async (req, res) => {
   const d = parse(siteSchema, req.body);
+  if (d.ownership === 'PROPRIA') Object.assign(d, { host_name: null, host_vat: null, host_email: null, royalty_fixed_monthly: 0, royalty_pct: 0, royalty_vat_rate: 0, royalty_notes: null });
   assertCompany(req.user, d.company_id);
   if (await one('SELECT 1 FROM sites WHERE company_id=$1 AND code=$2', [d.company_id, d.code])) throw bad('Codice sede già esistente per questa azienda');
   const row = await tx(async (c) => {
-    const s = (await c.query(`INSERT INTO sites (company_id, code, name, address, city, province, cash_float, start_date, operating_days, pos_terminals, active,
+    const s = (await c.query(`INSERT INTO sites (company_id, code, name, address, city, province, cash_float, start_date, ownership, operating_days, pos_terminals, active,
         host_name, host_vat, royalty_fixed_monthly, royalty_pct, royalty_base, royalty_vat_rate, royalty_notes, site_email, host_email)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING id`,
-    [d.company_id, d.code, d.name, d.address, d.city, d.province, d.cash_float, d.start_date, d.operating_days, d.pos_terminals, d.active,
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21) RETURNING id`,
+    [d.company_id, d.code, d.name, d.address, d.city, d.province, d.cash_float, d.start_date, d.ownership, d.operating_days, d.pos_terminals, d.active,
       d.host_name, d.host_vat, d.royalty_fixed_monthly, d.royalty_pct, d.royalty_base, d.royalty_vat_rate, d.royalty_notes, d.site_email || null, d.host_email || null])).rows[0];
     await c.query('INSERT INTO cash_float_history (site_id, old_value, new_value, changed_by, reason) VALUES ($1,NULL,$2,$3,$4)',
       [s.id, d.cash_float, req.user.id, 'Impostazione iniziale']);
@@ -203,6 +205,7 @@ r.put('/sites/:id', requireRole('SUPERADMIN', 'ADMIN'), ah(async (req, res) => {
   // partial() applica comunque i default: li rimuovo per non azzerare i campi omessi
   const d = parse(z.object(Object.fromEntries(Object.entries(siteSchema.omit({ company_id: true, code: true }).shape)
     .map(([k, v]) => [k, (v instanceof z.ZodDefault ? v.removeDefault() : v).optional()]))), req.body);
+  if ((d.ownership || site.ownership) === 'PROPRIA') Object.assign(d, { host_name: null, host_vat: null, host_email: null, royalty_fixed_monthly: 0, royalty_pct: 0, royalty_vat_rate: 0, royalty_notes: null });
   await tx(async (c) => {
     if (d.cash_float != null && Number(d.cash_float) !== Number(site.cash_float)) {
       if (!d.float_reason) throw bad('Indica il motivo della variazione del fondo cassa');
@@ -218,6 +221,28 @@ r.put('/sites/:id', requireRole('SUPERADMIN', 'ADMIN'), ah(async (req, res) => {
     if (cols.length) await c.query(`UPDATE sites SET ${cols.map((k, i) => `${k}=$${i + 2}`).join(', ')}, updated_at=now() WHERE id=$1`, [site.id, ...cols.map((k) => d[k])]);
   });
   await audit(req, 'SITE_UPDATE', 'site', site.id, req.body);
+  res.json({ ok: true });
+}));
+
+// Eliminazione sede: solo senza rendiconti (altrimenti si disattiva), con motivazione tracciata
+r.delete('/sites/:id', requireRole('SUPERADMIN', 'ADMIN'), ah(async (req, res) => {
+  const site = await assertSite(req.user, Number(req.params.id));
+  const reason = String(req.body?.reason || '').trim();
+  if (reason.length < 5) throw bad('Indica la motivazione (almeno 5 caratteri)');
+  const n = await one(`SELECT (SELECT count(*)::int FROM cash_reports WHERE site_id=$1) AS reports, (SELECT count(*)::int FROM nonconformities WHERE site_id=$1) AS nc,
+    (SELECT count(*)::int FROM site_royalty_statements WHERE site_id=$1) AS statements`, [site.id]);
+  if (n.reports || n.statements) throw bad(`La sede ha ${n.reports} rendiconti e ${n.statements} report royalty confermati: non si può eliminare. Disattivala dalla scheda sede.`);
+  await tx(async (c) => {
+    await c.query('DELETE FROM nonconformities WHERE site_id=$1', [site.id]);
+    await c.query('UPDATE email_log SET site_id=NULL WHERE site_id=$1', [site.id]);
+    await c.query('DELETE FROM payment_transactions WHERE site_id=$1', [site.id]);
+    await c.query('DELETE FROM channel_revenues WHERE site_id=$1', [site.id]);
+    await c.query('DELETE FROM site_royalty_history WHERE site_id=$1', [site.id]);
+    await c.query('DELETE FROM cash_float_history WHERE site_id=$1', [site.id]);
+    await c.query('DELETE FROM user_sites WHERE site_id=$1', [site.id]);
+    await c.query('DELETE FROM sites WHERE id=$1', [site.id]);
+  });
+  await audit(req, 'SITE_DELETE', 'site', site.id, { reason, snapshot: site, nc_removed: n.nc });
   res.json({ ok: true });
 }));
 

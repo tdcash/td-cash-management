@@ -3,6 +3,7 @@ import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { useApi, Field, Loading, ErrorBox, Empty, Badge, Modal, useToast } from '../components/ui.jsx';
 import { itDateTime, ROLE, ROLE_HELP } from '../format.js';
+import { ImportButtons } from '../components/importxlsx.jsx';
 
 const empty = { email: '', full_name: '', role: 'OPERATOR', company_id: '', auth_provider: 'BOTH', site_ids: [], active: true };
 const PROVIDER = { LOCAL: 'Email e password', ENTRA: 'Solo Microsoft 365', BOTH: 'Microsoft 365 o password' };
@@ -41,7 +42,7 @@ export default function Users() {
     <div className="page">
       <div className="page-head">
         <div><h1>Utenti</h1><div className="sub">Credenziali, ruolo e sedi su cui ciascuno può operare</div></div>
-        <button className="btn" onClick={() => setEdit({ ...empty, company_id: user.company_id || companies.data?.[0]?.id || '' })}>+ Nuovo utente</button>
+        <div className="row"><ImportButtons kind="users" onDone={reload} /><button className="btn" onClick={() => setEdit({ ...empty, company_id: user.company_id || companies.data?.[0]?.id || '' })}>+ Nuovo utente</button></div>
       </div>
       <ErrorBox error={err} />
       <div className="alert info" style={{ marginBottom: 14 }}>Super amministratore: crea aziende e vede tutto. Amministratore: gestisce sedi, utenti, fondi cassa, segnalazioni, operazioni logistiche, riconteggi e versamenti della sua azienda. Operatore: compila e consulta i rendiconti delle sedi assegnate. Partner: struttura ospitante, vede solo statistiche incassi e royalty di sede confermate delle sue sedi.</div>

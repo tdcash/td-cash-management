@@ -19,6 +19,7 @@ import importRoutes from './routes/imports.js';
 import royaltyRoutes from './routes/royalty.js';
 import depositRoutes from './routes/deposits.js';
 import commsRoutes from './routes/comms.js';
+import anagraficaImportRoutes from './routes/anagraficaImport.js';
 import { startScheduler } from './lib/alerts.js';
 import siteRoyaltyRoutes from './routes/siteRoyalty.js';
 
@@ -76,6 +77,7 @@ app.use('/api/imports', importRoutes);
 app.use('/api/canoni', siteRoyaltyRoutes);
 app.use('/api/deposits', depositRoutes);
 app.use('/api/comms', commsRoutes);
+app.use('/api/anagrafica', anagraficaImportRoutes);
 app.use('/api/royalty', royaltyRoutes);
 app.use('/api', (_req, _res, next) => next(new HttpError(404, 'Endpoint inesistente')));
 

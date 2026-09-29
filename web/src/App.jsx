@@ -53,8 +53,8 @@ function Shell() {
             <L to="/statistiche" icon="chart">Statistiche incassi</L>
             <L to="/canoni" icon="percent">Royalty di sede</L>
           </> : <>
-          <div className="group">Rendicontazione</div>
           <L to="/" icon="home" end>Cruscotto</L>
+          <div className="group">Rendicontazione</div>
           {counter && <L to="/rendiconti/nuovo" icon="plus">Nuovo rendiconto</L>}
           <L to="/rendiconti" icon="cash" end>Rendiconti</L>
           {!reviewer && <L to="/nc" icon="alert" count={openNc}>Errori e NC</L>}

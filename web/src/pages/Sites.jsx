@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
-import { useApi, Card, Field, Loading, ErrorBox, Empty, Badge, Modal, MoneyInput, useToast } from '../components/ui.jsx';
+import { useApi, Card, Field, Loading, ErrorBox, Empty, Badge, Modal, MoneyInput, PromptModal, Icon, useToast } from '../components/ui.jsx';
 import { eur, itDate, itDateTime } from '../format.js';
+import { ImportButtons } from '../components/importxlsx.jsx';
 
 const DAYS = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom'];
-const empty = { company_id: '', code: '', name: '', address: '', city: '', province: '', site_email: '', host_email: '', cash_float: 0, start_date: '', operating_days: '1111110', pos_terminals: '', active: true, float_reason: '', host_name: '', host_vat: '', royalty_fixed_monthly: 0, royalty_pct: 0, royalty_base: 'TOTALE', royalty_vat_rate: 0, royalty_notes: '' };
+const empty = { company_id: '', code: '', name: '', address: '', city: '', province: '', site_email: '', host_email: '', cash_float: 0, start_date: '', ownership: 'OSPITATA', operating_days: '1111110', pos_terminals: '', active: true, float_reason: '', host_name: '', host_vat: '', royalty_fixed_monthly: 0, royalty_pct: 0, royalty_base: 'TOTALE', royalty_vat_rate: 0, royalty_notes: '' };
 const BASES = { TOTALE: 'Totale incassi (contanti, POS, bonifici)', CONTANTI_POS: 'Contanti e POS', CONTANTI: 'Solo contanti' };
 
 export default function Sites() {
@@ -16,6 +17,7 @@ export default function Sites() {
   const companies = useApi(sup ? '/companies' : null);
   const [edit, setEdit] = useState(null);
   const [hist, setHist] = useState(null);
+  const [del, setDel] = useState(null);
   const [err, setErr] = useState(null);
   const save = async () => {
     setErr(null);
@@ -28,28 +30,35 @@ export default function Sites() {
       toast('Sede salvata'); setEdit(null); reload();
     } catch (e) { setErr(e); }
   };
+  const [sort, setSort] = useState({ key: 'name', dir: 1 });
+  const sorted = [...(data || [])].sort((a, b) => {
+    const va = sort.key === 'company' ? a.company_name : sort.key === 'code' ? a.code : a.name;
+    const vb = sort.key === 'company' ? b.company_name : sort.key === 'code' ? b.code : b.name;
+    return String(va || '').localeCompare(String(vb || ''), 'it', { numeric: true, sensitivity: 'base' }) * sort.dir;
+  });
+  const Th = ({ k, children }) => <th className="sortable" onClick={() => setSort({ key: k, dir: sort.key === k ? -sort.dir : 1 })} title="Ordina">{children}{sort.key === k ? (sort.dir === 1 ? ' ▲' : ' ▼') : ''}</th>;
   const orig = edit?.id ? data.find((s) => s.id === edit.id) : null;
   const floatChanged = orig && Number(orig.cash_float) !== Number(edit.cash_float);
   return (
     <div className="page">
       <div className="page-head">
         <div><h1>Sedi e fondo cassa</h1><div className="sub">Ogni sede ha il suo fondo cassa, i giorni operativi e gli utenti abilitati</div></div>
-        <button className="btn" onClick={() => setEdit({ ...empty, company_id: user.company_id || companies.data?.[0]?.id || '' })}>+ Nuova sede</button>
+        <div className="row"><ImportButtons kind="sites" onDone={reload} /><button className="btn" onClick={() => setEdit({ ...empty, company_id: user.company_id || companies.data?.[0]?.id || '' })}>+ Nuova sede</button></div>
       </div>
       {!data ? <Loading /> : !data.length ? <div className="card"><Empty>Nessuna sede</Empty></div> : (
         <div className="card"><div className="table-wrap"><table className="t">
-          <thead><tr><th>Codice</th><th>Sede</th>{sup && <th>Azienda</th>}<th>Giorni operativi</th><th>Struttura ospitante</th><th>Canone</th><th className="num">Fondo cassa</th><th className="num">Utenti</th><th>Stato</th><th /></tr></thead>
-          <tbody>{data.map((s) => (
+          <thead><tr><Th k="code">Codice</Th><Th k="name">Sede</Th>{sup && <Th k="company">Azienda</Th>}<th>Giorni operativi</th><th>Struttura ospitante</th><th>Canone</th><th className="num">Fondo cassa</th><th className="num">Utenti</th><th>Stato</th><th /></tr></thead>
+          <tbody>{sorted.map((s) => (
             <tr key={s.id}>
               <td className="mono">{s.code}</td><td><b>{s.name}</b><div className="small muted">{[s.address, s.city, s.province && `(${s.province})`].filter(Boolean).join(' ')}</div>{s.site_email ? <div className="small muted">{s.site_email}</div> : <div className="small red">email sede mancante</div>}</td>
               {sup && <td>{s.company_name}</td>}
               <td>{DAYS.map((d, i) => <span key={d} className="chip" style={{ opacity: s.operating_days[i] === '1' ? 1 : .3 }}>{d}</span>)}<div className="small muted">dal {itDate(s.start_date)}</div></td>
-              <td>{s.host_name || <span className="muted">–</span>}{s.host_email && <div className="small muted">{s.host_email}</div>}</td>
-              <td className="small">{Number(s.royalty_fixed_monthly) > 0 && <div>{eur(s.royalty_fixed_monthly)}/mese</div>}{Number(s.royalty_pct) > 0 && <div>{s.royalty_pct}% {s.royalty_base === 'TOTALE' ? 'sul totale' : s.royalty_base === 'CONTANTI_POS' ? 'su contanti e POS' : 'sui contanti'}</div>}{Number(s.royalty_fixed_monthly) > 0 || Number(s.royalty_pct) > 0 ? <div className="muted">IVA {s.royalty_vat_rate}%</div> : <span className="muted">nessuno</span>}</td>
+              <td>{s.ownership === 'PROPRIA' ? <Badge tone="teal">Sede di proprietà</Badge> : s.host_name || <span className="muted">–</span>}{s.host_email && <div className="small muted">{s.host_email}</div>}</td>
+              <td className="small">{s.ownership === 'PROPRIA' ? <span className="muted">nessuna royalty</span> : <>{Number(s.royalty_fixed_monthly) > 0 && <div>{eur(s.royalty_fixed_monthly)}/mese</div>}{Number(s.royalty_pct) > 0 && <div>{s.royalty_pct}% {s.royalty_base === 'TOTALE' ? 'sul totale' : s.royalty_base === 'CONTANTI_POS' ? 'su contanti e POS' : 'sui contanti'}</div>}{Number(s.royalty_fixed_monthly) > 0 || Number(s.royalty_pct) > 0 ? <div className="muted">IVA {s.royalty_vat_rate}%</div> : <span className="muted">nessuno</span>}</>}</td>
               <td className="num strong">{eur(s.cash_float)} <button className="btn link small" onClick={() => setHist(s)}>storico</button></td>
               <td className="num">{s.users_count}</td>
               <td>{s.active ? <Badge tone="green">Attiva</Badge> : <Badge tone="red">Disattiva</Badge>}</td>
-              <td className="num"><button className="btn sm ghost" onClick={() => setEdit({ ...s, pos_terminals: s.pos_terminals || '', address: s.address || '', city: s.city || '', province: s.province || '', site_email: s.site_email || '', host_email: s.host_email || '', float_reason: '', host_name: s.host_name || '', host_vat: s.host_vat || '', royalty_notes: s.royalty_notes || '' })}>Modifica</button></td>
+              <td className="num"><button className="btn sm ghost" onClick={() => setEdit({ ...s, ownership: s.ownership || 'OSPITATA', pos_terminals: s.pos_terminals || '', address: s.address || '', city: s.city || '', province: s.province || '', site_email: s.site_email || '', host_email: s.host_email || '', float_reason: '', host_name: s.host_name || '', host_vat: s.host_vat || '', royalty_notes: s.royalty_notes || '' })}>Modifica</button> <button className="iconbtn danger" title="Elimina sede" aria-label="Elimina sede" onClick={() => setDel(s)}><Icon name="trash" size={16} /></button></td>
             </tr>))}</tbody>
         </table></div></div>
       )}
@@ -73,7 +82,13 @@ export default function Sites() {
             <div className="small strong muted" style={{ marginBottom: 6 }}>Giorni operativi (attesi in rendicontazione)</div>
             <div className="row">{DAYS.map((d, i) => <label key={d} className="f inline"><input type="checkbox" checked={edit.operating_days[i] === '1'} onChange={(e) => { const a = edit.operating_days.split(''); a[i] = e.target.checked ? '1' : '0'; setEdit({ ...edit, operating_days: a.join('') }); }} />{d}</label>)}</div>
           </div>
-          <h3 style={{ margin: '18px 0 8px' }}>Royalty alla struttura ospitante</h3>
+          <h3 style={{ margin: '18px 0 8px' }}>Tipo di sede</h3>
+          <div className="row" style={{ gap: 18 }}>
+            <label className="f inline"><input type="radio" name="ownership" checked={edit.ownership === 'OSPITATA'} onChange={() => setEdit({ ...edit, ownership: 'OSPITATA' })} />Sede ospitata in struttura terza (corner con royalty)</label>
+            <label className="f inline"><input type="radio" name="ownership" checked={edit.ownership === 'PROPRIA'} onChange={() => setEdit({ ...edit, ownership: 'PROPRIA' })} />Sede di proprietà (nessuna royalty)</label>
+          </div>
+          {edit.ownership === 'PROPRIA' ? <p className="small muted" style={{ marginTop: 8 }}>La sede non compare nella pagina Royalty di sede e non genera report per strutture ospitanti.</p> : <>
+          <h3 style={{ margin: '14px 0 8px' }}>Royalty alla struttura ospitante</h3>
           <div className="form-grid">
             <Field label="Struttura ospitante"><input value={edit.host_name} onChange={(e) => setEdit({ ...edit, host_name: e.target.value })} placeholder="es. Farmacia Comunale n. 3" /></Field>
             <Field label="P.IVA struttura"><input value={edit.host_vat} onChange={(e) => setEdit({ ...edit, host_vat: e.target.value })} /></Field>
@@ -84,10 +99,12 @@ export default function Sites() {
             <Field label="IVA %" help="0 se il canone non è soggetto a IVA"><input type="number" step="0.01" min="0" max="100" value={edit.royalty_vat_rate} onChange={(e) => setEdit({ ...edit, royalty_vat_rate: e.target.value })} /></Field>
           </div>
           <div style={{ marginTop: 10 }}><Field label="Note contrattuali"><input value={edit.royalty_notes} onChange={(e) => setEdit({ ...edit, royalty_notes: e.target.value })} placeholder="es. contratto del 01/09/2026, pagamento entro il 10 del mese successivo" /></Field></div>
+          </>}
           {edit.id && <label className="f inline" style={{ marginTop: 12 }}><input type="checkbox" checked={!!edit.active} onChange={(e) => setEdit({ ...edit, active: e.target.checked })} />Sede attiva</label>}
         </Modal>
       )}
       {hist && <FloatHistory site={hist} onClose={() => setHist(null)} />}
+      {del && <PromptModal title={`Elimina sede ${del.name}`} label="Possibile solo se la sede non ha rendiconti; altrimenti disattivala. Motivazione (resta nel registro attività)" confirmText="Elimina sede" danger onClose={() => setDel(null)} onConfirm={async (reason) => { await api.del(`/sites/${del.id}`, { reason }); toast('Sede eliminata'); reload(); }} />}
     </div>
   );
 }

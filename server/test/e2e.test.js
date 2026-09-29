@@ -505,6 +505,82 @@ test('flusso completo', async (t) => {
     r = await A.get('/api/comms/log?kind=NC');
     assert.ok(r.data.length >= 1);
   });
+  await t.test('sede di proprietà, eliminazione sede, import Excel di sedi e utenti', async () => {
+    // sede di proprietà: nessuna royalty, esclusa dal riepilogo
+    let r = await A.post('/api/sites', { company_id: ctx.company, code: 'PROP01', name: 'Sede propria Firenze', cash_float: 100, start_date: '2026-09-01', ownership: 'PROPRIA', royalty_pct: 5, host_name: 'ignorato' });
+    assert.equal(r.status, 201, JSON.stringify(r.data));
+    const prop = r.data.id;
+    let site = (await A.get('/api/sites')).data.find((x) => x.id === prop);
+    assert.equal(site.ownership, 'PROPRIA'); assert.equal(Number(site.royalty_pct), 0); assert.equal(site.host_name, null);
+    r = await A.get('/api/canoni/summary?period=2026-09');
+    assert.ok(!r.data.rows.some((x) => x.site_id === prop), 'sede propria fuori dalle royalty');
+    assert.equal((await A.post(`/api/canoni/sites/${prop}/confirm`, { period: '2026-08' })).status, 400);
+    // eliminazione: senza rendiconti sì, con rendiconti no
+    assert.equal((await A.del(`/api/sites/${prop}`, { reason: 'x' })).status, 400, 'motivazione obbligatoria');
+    assert.equal((await O.del(`/api/sites/${prop}`, { reason: 'operatore non può' })).status, 403);
+    r = await A.del(`/api/sites/${prop}`, { reason: 'Sede creata per errore' });
+    assert.equal(r.status, 200, JSON.stringify(r.data));
+    assert.ok(!(await A.get('/api/sites')).data.some((x) => x.id === prop));
+    r = await A.del(`/api/sites/${ctx.site}`, { reason: 'Prova su sede con rendiconti' });
+    assert.equal(r.status, 400); assert.match(r.data.error, /rendiconti/);
+    // modello Excel sedi: scarico, compilo, importo
+    const ExcelJS = (await import('exceljs')).default;
+    let raw = await A.raw('/api/anagrafica/template/sites.xlsx');
+    assert.equal(raw.status, 200);
+    let wb = new ExcelJS.Workbook(); await wb.xlsx.load(Buffer.from(await raw.arrayBuffer()));
+    let ws = wb.worksheets[0];
+    assert.equal(ws.getCell('A1').value, 'codice');
+    const addObj = (w, o) => { const h = w.getRow(1).values.slice(1); w.addRow(h.map((k) => o[k] ?? null)); };
+    ws.spliceRows(2, 1); // via la riga di esempio
+    addObj(ws, { codice: 'XL01', nome: 'Sede da Excel', citta: 'Prato', provincia: 'po', email_sede: 'xl01@bioscienze.it', fondo_cassa: '200,00', data_avvio: '15/09/2026', giorni_operativi: '1111100', tipo: 'OSPITATA', struttura_ospitante: 'Farmacia Prato', quota_fissa_mensile: 100, percentuale: '1,5', base_percentuale: 'CONTANTI', iva: 22 });
+    addObj(ws, { codice: 'BSL02', nome: 'Punto prelievo Vicchio rinominato', fondo_cassa: 100, data_avvio: '01/09/2026', tipo: 'PROPRIA' });
+    addObj(ws, { codice: 'BAD', nome: 'Senza data', fondo_cassa: 'abc', tipo: 'X' });
+    const fileOf = async (w) => { const fd = new FormData(); fd.append('file', new Blob([Buffer.from(await w.xlsx.writeBuffer())]), 'sedi.xlsx'); return fd; };
+    r = await A.post('/api/anagrafica/sites?dry=1', await fileOf(wb));
+    assert.equal(r.status, 200, JSON.stringify(r.data));
+    assert.equal(r.data.ok, false);
+    assert.equal(r.data.rows.length, 3);
+    assert.equal(r.data.rows[0].action, 'CREA'); assert.equal(r.data.rows[1].action, 'AGGIORNA');
+    assert.ok(r.data.rows[2].errors.length >= 2, JSON.stringify(r.data.rows[2]));
+    // con errori non importa nemmeno senza dry
+    r = await A.post('/api/anagrafica/sites', await fileOf(wb));
+    assert.equal(r.data.dry, true);
+    assert.ok(!(await A.get('/api/sites')).data.some((x) => x.code === 'XL01'), 'nulla scritto');
+    ws.spliceRows(r.data.rows[2].row, 1);
+    r = await A.post('/api/anagrafica/sites', await fileOf(wb));
+    assert.equal(r.status, 200, JSON.stringify(r.data));
+    assert.equal(r.data.ok, true); assert.equal(r.data.dry, false);
+    const sites = (await A.get('/api/sites')).data;
+    const xl = sites.find((x) => x.code === 'XL01');
+    assert.equal(xl.province, 'PO'); assert.equal(Number(xl.cash_float), 200); assert.equal(xl.start_date, '2026-09-15'); assert.equal(Number(xl.royalty_pct), 1.5); assert.equal(xl.royalty_base, 'CONTANTI');
+    const v = sites.find((x) => x.id === ctx.site2);
+    assert.equal(v.name, 'Punto prelievo Vicchio rinominato'); assert.equal(v.ownership, 'PROPRIA');
+    // modello Excel utenti
+    raw = await A.raw('/api/anagrafica/template/users.xlsx');
+    wb = new ExcelJS.Workbook(); await wb.xlsx.load(Buffer.from(await raw.arrayBuffer()));
+    ws = wb.worksheets[0]; ws.spliceRows(2, 1);
+    addObj(ws, { email: 'Nuovo.Op@bioscienze.it', nome_cognome: 'Nuovo Operatore', ruolo: 'operator', accesso: 'PASSWORD', sedi: 'XL01, BSL02', attivo: 'SI' });
+    addObj(ws, { email: 'op@bioscienze.it', nome_cognome: 'Luca Bianchi Aggiornato', ruolo: 'CASSIERE', accesso: 'ENTRAMBI', sedi: 'BSL01' });
+    addObj(ws, { email: 'fin2@bioscienze.it', nome_cognome: 'Finance Due', ruolo: 'FINANCE', accesso: 'MICROSOFT' });
+    r = await A.post('/api/anagrafica/users', await fileOf(wb));
+    assert.equal(r.status, 200, JSON.stringify(r.data));
+    assert.equal(r.data.ok, true);
+    assert.equal(r.data.credentials.length, 1, 'password temporanea solo per il nuovo utente con password');
+    assert.equal(r.data.credentials[0].email, 'nuovo.op@bioscienze.it');
+    const users = (await A.get('/api/users')).data;
+    const nu = users.find((u) => u.email === 'nuovo.op@bioscienze.it');
+    assert.equal(nu.role, 'OPERATOR'); assert.equal(nu.site_ids.length, 2);
+    const lb = users.find((u) => u.email === 'op@bioscienze.it');
+    assert.equal(lb.role, 'CASSIERE'); assert.equal(lb.full_name, 'Luca Bianchi Aggiornato');
+    assert.equal(users.find((u) => u.email === 'fin2@bioscienze.it').auth_provider, 'ENTRA');
+    // riga con sede inesistente -> errore, nulla scritto
+    addObj(ws, { email: 'x@bioscienze.it', nome_cognome: 'Sede Sbagliata', ruolo: 'OPERATOR', accesso: 'PASSWORD', sedi: 'NOPE' });
+    r = await A.post('/api/anagrafica/users', await fileOf(wb));
+    assert.equal(r.data.ok, false);
+    assert.ok(!(await A.get('/api/users')).data.some((u) => u.email === 'x@bioscienze.it'));
+    // ripristino ruolo operatore di Luca per i test successivi
+    await A.put(`/api/users/${lb.id}`, { email: lb.email, full_name: 'Luca Bianchi', role: 'OPERATOR', company_id: ctx.company, auth_provider: 'LOCAL', site_ids: [ctx.site], active: true });
+  });
   await t.test('isolamento tra aziende', async () => {
     const r = await A.get('/api/companies');
     assert.equal(r.data.length, 1);

@@ -56,6 +56,8 @@ Ripristino di un backup: `docker compose exec -T db pg_restore -U cash -d cash -
 
 Controllo giornaliero: pagina dedicata per gli amministratori con lo stato di ogni sede per il giorno scelto (rendiconto inserito, in bozza, mancante, sede chiusa per calendario). Ogni mattina all'ora impostata (default 10:00) il sistema verifica il giorno precedente, invia un sollecito all'email di sede delle sedi mancanti e un riepilogo agli amministratori dell'azienda. Solleciti manuali per singola sede o per tutte le mancanti, comunicazioni libere a sede, struttura ospitante e operatori, con registro di tutti gli invii (esito, destinatari, allegato). Le segnalazioni aperte e le note notificano la sede; la conferma mensile delle royalty invia in automatico il report PDF all'email della struttura ospitante. Se l'invio non è configurato, tutto resta comunque registrato nel registro invii.
 
+Anagrafica sedi (v6.2): elenco ordinabile per codice, denominazione e azienda cliccando l'intestazione; tipo di sede (di proprietà, senza royalty né struttura ospitante, oppure ospitata con royalty); eliminazione dall'amministratore con motivazione, solo per sedi senza rendiconti (altrimenti si disattiva). Sedi e utenti si possono caricare in blocco da un modello Excel scaricabile dall'app (Modello Excel, Importa da Excel): il file viene controllato riga per riga in anteprima e importato solo se privo di errori; il codice sede o l'email esistenti aggiornano l'anagrafica, gli altri creano; per i nuovi utenti con password l'app mostra le password temporanee al termine.
+
 Le email di sede e della struttura ospitante si impostano nell'anagrafica sede, insieme alla data di avvio: primo giorno di lavoro da cui il sistema attende il rendiconto (obbligatoria; prima di quella data nessuna mancanza viene segnalata e nessun rendiconto è accettato). Il controllo automatico richiede un'istanza sempre attiva (su Render: piano a pagamento, non il piano gratuito che dorme).
 
 ## Microsoft 365: accesso e invio email
@@ -108,7 +110,8 @@ Canali digitali: `data; canale; importo_lordo; quota_franchisor; sede; riferimen
 Tutte sotto /api, autenticazione via cookie di sessione, header `X-Requested-With: td-cash` obbligatorio sulle richieste che modificano dati.
 
 - auth: login, totp, logout, me, change-password, totp/setup, totp/enable, entra/login, entra/callback
-- companies, companies/:id/bank-accounts, sites, users, settings, audit
+- companies, companies/:id/bank-accounts, sites (DELETE con motivazione), users, settings, audit
+- anagrafica: template/sites.xlsx, template/users.xlsx, sites (import, ?dry=1 anteprima), users (import)
 - reports: CRUD bozza, envelope, unlock, process, pdf, pickup, deposit, reopen
 - nc: elenco, dettaglio, creazione, messages, close, reopen
 - stats: summary, today, export.csv

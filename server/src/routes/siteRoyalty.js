@@ -35,7 +35,7 @@ r.get('/summary', ah(async (req, res) => {
   if (!PERIOD.test(period)) throw bad('Periodo non valido (AAAA-MM)');
   const { start, end } = monthRange(period);
   const P = new Params();
-  const where = [siteScope(req.user, P)];
+  const where = [siteScope(req.user, P), "s.ownership = 'OSPITATA'"];
   if (req.query.company_id) where.push(`s.company_id = ${P.add(Number(req.query.company_id))}`);
   const sites = await many(`SELECT s.*, c.name AS company_name FROM sites s JOIN companies c ON c.id=s.company_id WHERE ${where.join(' AND ')} ORDER BY c.name, s.name`, P.values);
   const confirmed = await many(`SELECT * FROM site_royalty_statements WHERE period=$1 AND cancelled_at IS NULL AND site_id = ANY($2)`, [period, sites.map((x) => x.id)]);
@@ -71,6 +71,7 @@ r.get('/sites/:id', ah(async (req, res) => {
   const period = String(req.query.period || '');
   if (!PERIOD.test(period)) throw bad('Periodo non valido (AAAA-MM)');
   const site = await assertSite(req.user, Number(req.params.id));
+  if (site.ownership === 'PROPRIA') throw bad('Sede di proprietà: nessuna royalty prevista');
   const { start, end } = monthRange(period);
   const st = await one('SELECT * FROM site_royalty_statements WHERE site_id=$1 AND period=$2 AND cancelled_at IS NULL', [site.id, period]);
   if (req.user.role === 'PARTNER' && !st) throw forbidden('Report non ancora confermato dall\'amministratore');
@@ -84,6 +85,7 @@ r.post('/sites/:id/confirm', ah(async (req, res) => {
   const period = String(req.body?.period || '');
   if (!PERIOD.test(period)) throw bad('Periodo non valido (AAAA-MM)');
   const site = await assertSite(req.user, Number(req.params.id));
+  if (site.ownership === 'PROPRIA') throw bad('Sede di proprietà: nessuna royalty prevista');
   const { start, end } = monthRange(period);
   if (end >= todayRome()) throw bad('Il mese non è ancora concluso: la conferma si fa dal primo giorno del mese successivo');
   const ex = await one('SELECT id FROM site_royalty_statements WHERE site_id=$1 AND period=$2 AND cancelled_at IS NULL', [site.id, period]);
@@ -109,6 +111,7 @@ r.post('/sites/:id/unconfirm', ah(async (req, res) => {
   if (!['SUPERADMIN', 'ADMIN'].includes(req.user.role)) throw forbidden();
   const d = parse(z.object({ period: z.string().regex(PERIOD), reason: z.string().trim().min(5).max(500) }), req.body);
   const site = await assertSite(req.user, Number(req.params.id));
+  if (site.ownership === 'PROPRIA') throw bad('Sede di proprietà: nessuna royalty prevista');
   const st = await one('SELECT id FROM site_royalty_statements WHERE site_id=$1 AND period=$2 AND cancelled_at IS NULL', [site.id, d.period]);
   if (!st) throw bad('Nessuna conferma da annullare');
   await q('UPDATE site_royalty_statements SET cancelled_by=$2, cancelled_at=now(), cancel_reason=$3 WHERE id=$1', [st.id, req.user.id, d.reason]);
