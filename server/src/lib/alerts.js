@@ -4,7 +4,7 @@ import { getSetting, itDate, eur, todayRome } from './util.js';
 
 // Sedi operative in una data senza rendiconto (per azienda o tutte)
 export async function missingReports(date, companyId = null) {
-  return many(`SELECT s.id AS site_id, s.name AS site_name, s.code AS site_code, s.site_email, s.company_id, c.name AS company_name
+  return many(`SELECT s.id AS site_id, s.name AS site_name, s.code AS site_code, s.site_email, s.company_id, s.hours, c.name AS company_name
     FROM sites s JOIN companies c ON c.id=s.company_id
     WHERE s.active AND ($2::int IS NULL OR s.company_id=$2)
       AND substr(s.operating_days, extract(isodow FROM $1::date)::int, 1) = '1'
@@ -14,7 +14,9 @@ export async function missingReports(date, companyId = null) {
 }
 
 // Sollecito alla sede per un giorno mancante (una sola volta per sede/giorno)
-export async function sendMissingAlert(site, date, sentBy = null) {
+// automatic=true: non ripete il tentativo se esiste già una riga di registro per la stessa sede/giorno, qualunque esito
+export async function sendMissingAlert(site, date, sentBy = null, automatic = false) {
+  if (automatic && await one('SELECT 1 FROM email_log WHERE ref_key=$1', [`SOLLECITO:${site.site_id}:${date}`])) return { status: 'DUPLICATA' };
   if (!site.site_email) return { status: 'FALLITA', error: 'Email di sede non impostata' };
   return sendMail({
     kind: 'SOLLECITO', refKey: `SOLLECITO:${site.site_id}:${date}`, to: site.site_email, companyId: site.company_id, siteId: site.site_id, sentBy,
@@ -35,7 +37,8 @@ export async function runDailyCheck({ force = false } = {}) {
   const date = new Date(new Date(`${today}T12:00:00Z`).getTime() - 86400000).toISOString().slice(0, 10); // ieri
   const missing = await missingReports(date);
   const results = [];
-  for (const m of missing) results.push({ site: m.site_name, ...(await sendMissingAlert(m, date)) });
+  // sollecito del mattino solo per le sedi senza orario di chiusura (le altre sono sollecitate 60 minuti dopo la chiusura)
+  for (const m of missing) if (!closingTime(m, date)) results.push({ site: m.site_name, ...(await sendMissingAlert(m, date, null, true)) });
   // riepilogo agli amministratori di ciascuna azienda
   if ((await getSetting('daily_summary_admins', 'true')) === 'true') {
     const byCompany = new Map();
@@ -59,8 +62,37 @@ export async function runDailyCheck({ force = false } = {}) {
   return { date, missing: missing.length, results };
 }
 
+// Orario di chiusura della sede in una data (HH:MM) dagli orari per giorno della settimana
+export function closingTime(site, date) {
+  const dow = String(new Date(`${date}T12:00:00Z`).getUTCDay() || 7); // 1=lun .. 7=dom
+  const h = site.hours && typeof site.hours === 'object' ? site.hours[dow] : null;
+  return h?.close || null;
+}
+
+// Solleciti a fine giornata: 60 minuti dopo la chiusura della sede, se il rendiconto di oggi manca
+export async function runClosingAlerts({ force = false } = {}) {
+  if ((await getSetting('daily_alert_enabled', 'true')) !== 'true' && !force) return null;
+  const today = todayRome();
+  const nowParts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Rome', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(new Date());
+  const nowMin = Number(nowParts.find((p) => p.type === 'hour').value) * 60 + Number(nowParts.find((p) => p.type === 'minute').value);
+  const delay = Number(await getSetting('closing_alert_delay_minutes', '60'));
+  const missing = await missingReports(today);
+  const results = [];
+  for (const m of missing) {
+    const close = closingTime(m, today);
+    if (!close) continue;
+    const [hh, mm] = close.split(':').map(Number);
+    if (!force && nowMin < hh * 60 + mm + delay) continue;
+    results.push({ site: m.site_name, close, ...(await sendMissingAlert(m, today, null, true)) });
+  }
+  return { date: today, results };
+}
+
 export function startScheduler() {
-  const tick = () => runDailyCheck().then((r) => r && console.log(`[alert] controllo giornaliero ${r.date}: ${r.missing} sedi mancanti`)).catch((e) => console.error('[alert]', e.message));
+  const tick = () => Promise.all([
+    runDailyCheck().then((r) => r && console.log(`[alert] controllo giornaliero ${r.date}: ${r.missing} sedi mancanti`)),
+    runClosingAlerts().then((r) => { const sent = (r?.results || []).filter((x) => x.status !== 'DUPLICATA'); if (sent.length) console.log(`[alert] solleciti post chiusura ${r.date}: ${sent.map((x) => `${x.site} (${x.status})`).join(', ')}`); }),
+  ]).catch((e) => console.error('[alert]', e.message));
   setTimeout(tick, 15_000);
   setInterval(tick, 5 * 60 * 1000);
 }

@@ -319,6 +319,13 @@ r.post('/:id/system-pdf', countOnly, upload.single('file'), ah(async (req, res) 
   const extracted = extractCashFigures(text);
   await q(`UPDATE cash_reports SET system_pdf=$2, system_pdf_name=$3, system_pdf_at=now(), system_extracted=$4, updated_at=now() WHERE id=$1`,
     [rep.id, req.file.buffer, req.file.originalname, JSON.stringify(extracted)]);
+  // tracciato riconosciuto: compila subito le sezioni del gestionale (contanti, POS, bonifici, totale); restano modificabili
+  extracted.applied = false;
+  extracted.date_mismatch = !!(extracted.date && extracted.date !== rep.report_date);
+  if (extracted.format === 'stampa_cassa' && !extracted.date_mismatch) {
+    await q('UPDATE cash_reports SET expected_cash=$2, expected_pos=$3, expected_transfer=$4, expected_total=$5 WHERE id=$1', [rep.id, extracted.cash, extracted.pos, extracted.transfer, extracted.total]);
+    extracted.applied = true;
+  }
   await q(`INSERT INTO report_events (report_id, event, detail, user_id) VALUES ($1,'GESTIONALE',$2,$3)`, [rep.id, `Caricato ${req.file.originalname}${extracted.total != null ? `, totale letto ${eur(extracted.total)}` : ', importi non riconosciuti'}`, req.user.id]);
   await audit(req, 'REPORT_SYSTEM_PDF', 'report', rep.id, { file: req.file.originalname, extracted });
   res.json({ extracted, report: await fullReport(rep.id) });

@@ -6,8 +6,15 @@ import { eur, itDate, itDateTime } from '../format.js';
 import { ImportButtons } from '../components/importxlsx.jsx';
 
 const DAYS = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom'];
-const empty = { company_id: '', code: '', name: '', address: '', city: '', province: '', site_email: '', host_email: '', cash_float: 0, start_date: '', ownership: 'OSPITATA', operating_days: '1111110', pos_terminals: '', active: true, float_reason: '', host_name: '', host_vat: '', royalty_fixed_monthly: 0, royalty_pct: 0, royalty_base: 'TOTALE', royalty_vat_rate: 0, royalty_notes: '' };
+const empty = { company_id: '', code: '', name: '', address: '', city: '', province: '', site_email: '', host_email: '', cash_float: 0, start_date: '', ownership: 'OSPITATA', hours: {}, hours_note: '', operating_days: '1111110', pos_terminals: '', active: true, float_reason: '', host_name: '', host_vat: '', royalty_fixed_monthly: 0, royalty_pct: 0, royalty_base: 'TOTALE', royalty_vat_rate: 0, royalty_notes: '' };
 const BASES = { TOTALE: 'Totale incassi (contanti, POS, bonifici)', CONTANTI_POS: 'Contanti e POS', CONTANTI: 'Solo contanti' };
+
+// Riassunto orari: raggruppa i giorni con lo stesso orario
+function hoursSummary(hours) {
+  const groups = [];
+  DAYS.forEach((d, i) => { const h = hours[String(i + 1)]; if (!h || (!h.open && !h.close)) return; const key = `${h.open || '?'}-${h.close || '?'}`; const g = groups.find((x) => x.key === key); if (g) g.days.push(d); else groups.push({ key, days: [d] }); });
+  return groups.map((g) => `${g.days.length > 2 ? `${g.days[0]}-${g.days[g.days.length - 1]}` : g.days.join(', ')} ${g.key}`).join(' · ');
+}
 
 export default function Sites() {
   const { user } = useAuth();
@@ -21,7 +28,7 @@ export default function Sites() {
   const [err, setErr] = useState(null);
   const save = async () => {
     setErr(null);
-    const b = { ...edit, company_id: Number(edit.company_id || user.company_id), cash_float: Number(edit.cash_float), address: edit.address || null, city: edit.city || null, province: edit.province || null, site_email: edit.site_email || null, host_email: edit.host_email || null, start_date: String(edit.start_date || '').slice(0, 10), pos_terminals: edit.pos_terminals || null,
+    const b = { ...edit, company_id: Number(edit.company_id || user.company_id), cash_float: Number(edit.cash_float), address: edit.address || null, city: edit.city || null, province: edit.province || null, site_email: edit.site_email || null, host_email: edit.host_email || null, start_date: String(edit.start_date || '').slice(0, 10), hours: Object.fromEntries(Object.entries(edit.hours || {}).filter(([, v]) => v && (v.open || v.close)).map(([k, v]) => [k, { open: v.open || null, close: v.close || null }])), hours_note: edit.hours_note || null, pos_terminals: edit.pos_terminals || null,
       host_name: edit.host_name || null, host_vat: edit.host_vat || null, royalty_fixed_monthly: Number(edit.royalty_fixed_monthly) || 0, royalty_pct: Number(edit.royalty_pct) || 0, royalty_vat_rate: Number(edit.royalty_vat_rate) || 0, royalty_notes: edit.royalty_notes || null };
     delete b.company_name; delete b.company_code; delete b.users_count; delete b.created_at; delete b.updated_at;
     try {
@@ -52,13 +59,13 @@ export default function Sites() {
             <tr key={s.id}>
               <td className="mono">{s.code}</td><td><b>{s.name}</b><div className="small muted">{[s.address, s.city, s.province && `(${s.province})`].filter(Boolean).join(' ')}</div>{s.site_email ? <div className="small muted">{s.site_email}</div> : <div className="small red">email sede mancante</div>}</td>
               {sup && <td>{s.company_name}</td>}
-              <td>{DAYS.map((d, i) => <span key={d} className="chip" style={{ opacity: s.operating_days[i] === '1' ? 1 : .3 }}>{d}</span>)}<div className="small muted">dal {itDate(s.start_date)}</div></td>
+              <td>{DAYS.map((d, i) => <span key={d} className="chip" style={{ opacity: s.operating_days[i] === '1' ? 1 : .3 }}>{d}</span>)}<div className="small muted">dal {itDate(s.start_date)}</div>{s.hours && Object.keys(s.hours).length > 0 && <div className="small muted">{hoursSummary(s.hours)}</div>}</td>
               <td>{s.ownership === 'PROPRIA' ? <Badge tone="teal">Sede di proprietà</Badge> : s.host_name || <span className="muted">–</span>}{s.host_email && <div className="small muted">{s.host_email}</div>}</td>
               <td className="small">{s.ownership === 'PROPRIA' ? <span className="muted">nessuna royalty</span> : <>{Number(s.royalty_fixed_monthly) > 0 && <div>{eur(s.royalty_fixed_monthly)}/mese</div>}{Number(s.royalty_pct) > 0 && <div>{s.royalty_pct}% {s.royalty_base === 'TOTALE' ? 'sul totale' : s.royalty_base === 'CONTANTI_POS' ? 'su contanti e POS' : 'sui contanti'}</div>}{Number(s.royalty_fixed_monthly) > 0 || Number(s.royalty_pct) > 0 ? <div className="muted">IVA {s.royalty_vat_rate}%</div> : <span className="muted">nessuno</span>}</>}</td>
               <td className="num strong">{eur(s.cash_float)} <button className="btn link small" onClick={() => setHist(s)}>storico</button></td>
               <td className="num">{s.users_count}</td>
               <td>{s.active ? <Badge tone="green">Attiva</Badge> : <Badge tone="red">Disattiva</Badge>}</td>
-              <td className="num"><button className="btn sm ghost" onClick={() => setEdit({ ...s, ownership: s.ownership || 'OSPITATA', pos_terminals: s.pos_terminals || '', address: s.address || '', city: s.city || '', province: s.province || '', site_email: s.site_email || '', host_email: s.host_email || '', float_reason: '', host_name: s.host_name || '', host_vat: s.host_vat || '', royalty_notes: s.royalty_notes || '' })}>Modifica</button> <button className="iconbtn danger" title="Elimina sede" aria-label="Elimina sede" onClick={() => setDel(s)}><Icon name="trash" size={16} /></button></td>
+              <td className="num"><button className="btn sm ghost" onClick={() => setEdit({ ...s, ownership: s.ownership || 'OSPITATA', hours: s.hours || {}, hours_note: s.hours_note || '', pos_terminals: s.pos_terminals || '', address: s.address || '', city: s.city || '', province: s.province || '', site_email: s.site_email || '', host_email: s.host_email || '', float_reason: '', host_name: s.host_name || '', host_vat: s.host_vat || '', royalty_notes: s.royalty_notes || '' })}>Modifica</button> <button className="iconbtn danger" title="Elimina sede" aria-label="Elimina sede" onClick={() => setDel(s)}><Icon name="trash" size={16} /></button></td>
             </tr>))}</tbody>
         </table></div></div>
       )}
@@ -81,6 +88,17 @@ export default function Sites() {
             <Field label="Data di avvio della sede" help="Primo giorno di lavoro: da questa data il sistema attende il rendiconto e segnala le mancanze"><input type="date" required value={edit.start_date ? String(edit.start_date).slice(0, 10) : ''} onChange={(e) => setEdit({ ...edit, start_date: e.target.value })} /></Field>
             <div className="small strong muted" style={{ marginBottom: 6 }}>Giorni operativi (attesi in rendicontazione)</div>
             <div className="row">{DAYS.map((d, i) => <label key={d} className="f inline"><input type="checkbox" checked={edit.operating_days[i] === '1'} onChange={(e) => { const a = edit.operating_days.split(''); a[i] = e.target.checked ? '1' : '0'; setEdit({ ...edit, operating_days: a.join('') }); }} />{d}</label>)}</div>
+            <div className="small strong muted" style={{ margin: '12px 0 6px' }}>Orari della sede <span className="muted" style={{ fontWeight: 400 }}>(il sollecito per rendiconto mancante parte 60 minuti dopo la chiusura)</span></div>
+            <table className="t hours"><thead><tr><th>Giorno</th><th>Apertura</th><th>Chiusura</th><th /></tr></thead><tbody>
+              {DAYS.map((d, i) => { const k = String(i + 1); const h = (edit.hours || {})[k] || {}; const on = edit.operating_days[i] === '1'; const setH = (patch) => setEdit({ ...edit, hours: { ...(edit.hours || {}), [k]: { ...h, ...patch } } }); return (
+                <tr key={d} style={{ opacity: on ? 1 : .45 }}>
+                  <td>{d}</td>
+                  <td><input type="time" disabled={!on} value={h.open || ''} onChange={(e) => setH({ open: e.target.value })} /></td>
+                  <td><input type="time" disabled={!on} value={h.close || ''} onChange={(e) => setH({ close: e.target.value })} /></td>
+                  <td className="num">{i === 0 && on && (h.open || h.close) && <button className="btn sm ghost" type="button" onClick={() => { const all = {}; DAYS.forEach((_, j) => { if (edit.operating_days[j] === '1') all[String(j + 1)] = { open: h.open || null, close: h.close || null }; }); setEdit({ ...edit, hours: all }); }}>Copia su tutti i giorni</button>}</td>
+                </tr>); })}
+            </tbody></table>
+            <Field label="Note sugli orari" help="es. chiusura pomeridiana, orari estivi"><input value={edit.hours_note} onChange={(e) => setEdit({ ...edit, hours_note: e.target.value })} /></Field>
           </div>
           <h3 style={{ margin: '18px 0 8px' }}>Tipo di sede</h3>
           <div className="row" style={{ gap: 18 }}>

@@ -263,5 +263,6 @@ html.is-busy .btn:focus:not(.link)::after { content: ''; width: 12px; height: 12
   .shell { display: block; }
 }
 
+table.hours input[type=time] { width: 120px; }
 th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
 th.sortable:hover { color: var(--teal); }

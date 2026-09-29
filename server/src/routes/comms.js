@@ -4,7 +4,7 @@ import { many, one } from '../db.js';
 import { ah, bad, audit, parse, todayRome, itDate } from '../lib/util.js';
 import { requireRole, assertSite, assertCompany, isSuper, Params } from '../lib/access.js';
 import { sendMail, mailStatus } from '../lib/mailer.js';
-import { missingReports, sendMissingAlert, runDailyCheck } from '../lib/alerts.js';
+import { missingReports, sendMissingAlert, runDailyCheck, runClosingAlerts, closingTime } from '../lib/alerts.js';
 
 const r = Router();
 r.use(requireRole('SUPERADMIN', 'ADMIN'));
@@ -19,13 +19,14 @@ r.get('/daily', ah(async (req, res) => {
   if (req.query.company_id) where.push(`s.company_id = ${P.add(Number(req.query.company_id))}`);
   const d = P.add(date);
   const rows = await many(`SELECT s.id AS site_id, s.name AS site_name, s.code AS site_code, s.site_email, s.host_email, s.company_id, c.name AS company_name,
-      (substr(s.operating_days, extract(isodow FROM ${d}::date)::int, 1) = '1' AND s.start_date <= ${d}::date) AS operating, s.start_date,
+      (substr(s.operating_days, extract(isodow FROM ${d}::date)::int, 1) = '1' AND s.start_date <= ${d}::date) AS operating, s.start_date, s.hours,
       r.id AS report_id, r.status, r.cash_to_deposit, r.pos_total, r.transfer_total, r.updated_at, u.full_name AS created_by_name,
       (SELECT status FROM email_log e WHERE e.ref_key = 'SOLLECITO:' || s.id || ':' || ${d} ORDER BY e.created_at DESC LIMIT 1) AS alert_status,
       (SELECT created_at FROM email_log e WHERE e.ref_key = 'SOLLECITO:' || s.id || ':' || ${d} ORDER BY e.created_at DESC LIMIT 1) AS alert_at
     FROM sites s JOIN companies c ON c.id=s.company_id
     LEFT JOIN cash_reports r ON r.site_id=s.id AND r.report_date=${d}::date LEFT JOIN users u ON u.id=r.created_by
     WHERE ${where.join(' AND ')} ORDER BY c.name, s.name`, P.values);
+  for (const x of rows) x.closing_time = closingTime(x, date);
   const missing = rows.filter((x) => x.operating && !x.report_id);
   res.json({ date, rows, summary: { total: rows.length, operating: rows.filter((x) => x.operating).length, done: rows.filter((x) => x.report_id).length, missing: missing.length, drafts: rows.filter((x) => x.status === 'DRAFT').length },
     mail: mailStatus() });
@@ -51,7 +52,7 @@ r.post('/daily/alert', ah(async (req, res) => {
 
 // Esegue subito il controllo automatico (super amministratore)
 r.post('/daily/run', requireRole('SUPERADMIN'), ah(async (req, res) => {
-  res.json(await runDailyCheck({ force: true }));
+  res.json({ morning: await runDailyCheck({ force: true }), closing: await runClosingAlerts({ force: true }) });
 }));
 
 // Comunicazione libera a una sede: email di sede + (opzionale) struttura ospitante + operatori della sede

@@ -302,20 +302,41 @@ test('flusso completo', async (t) => {
     r = await A.get(`/api/deposits/safe?company_id=${ctx.company}`);
     assert.equal(r.data.total, 532.4);
   });
-  await t.test('PDF del gestionale: caricamento e lettura importi', async () => {
-    const r0 = await O.post('/api/reports', { site_id: ctx.site, report_date: '2026-09-19' });
+  await t.test('PDF del gestionale: Stampa cassa reale compila le sezioni; tracciato generico letto in modo euristico', async () => {
+    const fs = await import('node:fs');
+    // stampa cassa reale del 09/09/2026: contanti 48,30, totale incassato 48,30
+    const r0 = await O.post('/api/reports', { site_id: ctx.site, report_date: '2026-09-09' });
+    assert.equal(r0.status, 201, JSON.stringify(r0.data));
+    let fd = new FormData(); fd.append('file', new Blob([fs.readFileSync(new URL('./fixtures/stampa_cassa_esempio.pdf', import.meta.url))], { type: 'application/pdf' }), 'gestione-cassa 09.09.26.pdf');
+    let r = await O.post(`/api/reports/${r0.data.id}/system-pdf`, fd);
+    assert.equal(r.status, 200, JSON.stringify(r.data));
+    assert.equal(r.data.extracted.format, 'stampa_cassa');
+    assert.equal(r.data.extracted.cash, 48.3); assert.equal(r.data.extracted.pos, 0); assert.equal(r.data.extracted.transfer, 0); assert.equal(r.data.extracted.total, 48.3);
+    assert.equal(r.data.extracted.date, '2026-09-09'); assert.equal(r.data.extracted.applied, true);
+    assert.equal(Number(r.data.report.expected_cash), 48.3, 'sezione contanti compilata');
+    assert.equal(Number(r.data.report.expected_total), 48.3);
+    assert.equal((await O.raw(`/api/reports/${r0.data.id}/system-pdf`)).status, 200);
+    await O.del(`/api/reports/${r0.data.id}`);
+    // stessa stampa su un rendiconto di un altro giorno: letta ma non applicata
+    const r1 = await O.post('/api/reports', { site_id: ctx.site, report_date: '2026-09-19' });
+    fd = new FormData(); fd.append('file', new Blob([fs.readFileSync(new URL('./fixtures/stampa_cassa_esempio.pdf', import.meta.url))], { type: 'application/pdf' }), 'x.pdf');
+    r = await O.post(`/api/reports/${r1.data.id}/system-pdf`, fd);
+    assert.equal(r.data.extracted.date_mismatch, true); assert.equal(r.data.extracted.applied, false);
+    assert.equal(r.data.report.expected_cash, null);
+    await O.del(`/api/reports/${r1.data.id}`);
+    // tracciato generico
+    const r2 = await O.post('/api/reports', { site_id: ctx.site, report_date: '2026-09-19' });
     const PDFDocument = (await import('pdfkit')).default;
     const doc = new PDFDocument(); const chunks = []; doc.on('data', (c) => chunks.push(c));
     const done = new Promise((res) => doc.on('end', res));
     doc.text('CHIUSURA CASSA del 19/09/2026'); doc.text('Contanti 1.234,50'); doc.text('POS Bancomat 456,00'); doc.text('Bonifici 0,00'); doc.text('TOTALE INCASSI 1.690,50'); doc.end(); await done;
-    const fd = new FormData(); fd.append('file', new Blob([Buffer.concat(chunks)], { type: 'application/pdf' }), 'chiusura.pdf');
-    const r = await O.post(`/api/reports/${r0.data.id}/system-pdf`, fd);
+    fd = new FormData(); fd.append('file', new Blob([Buffer.concat(chunks)], { type: 'application/pdf' }), 'chiusura.pdf');
+    r = await O.post(`/api/reports/${r2.data.id}/system-pdf`, fd);
     assert.equal(r.status, 200, JSON.stringify(r.data));
-    assert.equal(r.data.extracted.total, 1690.5);
-    assert.equal(r.data.extracted.cash, 1234.5);
-    assert.equal(r.data.report.has_system_pdf, true);
-    assert.equal((await O.raw(`/api/reports/${r0.data.id}/system-pdf`)).status, 200);
-    await O.del(`/api/reports/${r0.data.id}`);
+    assert.equal(r.data.extracted.format, 'euristico');
+    assert.equal(r.data.extracted.total, 1690.5); assert.equal(r.data.extracted.cash, 1234.5);
+    assert.equal(r.data.extracted.applied, false, 'tracciato generico: valori proposti, non applicati');
+    await O.del(`/api/reports/${r2.data.id}`);
   });
   await t.test('profilo Partner: solo statistiche e royalty confermate', async () => {
     let r = await S.post('/api/users', { email: 'farmacia@ospitante.it', full_name: 'Farmacia Comunale 3', role: 'PARTNER', company_id: ctx.company, auth_provider: 'LOCAL', site_ids: [ctx.site] });
@@ -449,7 +470,7 @@ test('flusso completo', async (t) => {
     // email in anagrafica
     let r = await A.put(`/api/sites/${ctx.site}`, { site_email: 'bsl01@bioscienze.it', host_email: 'farmacia3@esempio.it' });
     assert.equal(r.status, 200, JSON.stringify(r.data));
-    const site = (await A.get('/api/sites')).data.find((x) => x.id === ctx.site);
+    let site = (await A.get('/api/sites')).data.find((x) => x.id === ctx.site);
     assert.equal(site.site_email, 'bsl01@bioscienze.it');
     assert.equal(site.host_email, 'farmacia3@esempio.it');
     // giorno di test: oggi (le sedi create oggi contano da oggi); scelgo un giorno operativo
@@ -496,9 +517,21 @@ test('flusso completo', async (t) => {
     r = await A.get('/api/comms/log?kind=ROYALTY');
     assert.equal(r.data[0].to_addr, 'farmacia3@esempio.it');
     assert.ok(r.data[0].attachment_name.endsWith('.pdf'));
-    // controllo automatico forzato dal super amministratore
+    // orari di sede: chiusura alle 13:00 lun-ven, copiata su tutti i giorni; sollecito post chiusura
+    r = await A.put(`/api/sites/${ctx.site}`, { hours: { 1: { open: '07:30', close: '13:00' }, 2: { open: '07:30', close: '13:00' }, 3: { open: '07:30', close: '13:00' }, 4: { open: '07:30', close: '13:00' }, 5: { open: '07:30', close: '13:00' }, 6: { open: '07:30', close: '12:00' } }, hours_note: 'Sabato solo mattina' });
+    assert.equal(r.status, 200, JSON.stringify(r.data));
+    site = (await A.get('/api/sites')).data.find((x) => x.id === ctx.site);
+    assert.equal(site.hours['6'].close, '12:00'); assert.equal(site.hours_note, 'Sabato solo mattina');
+    assert.equal((await A.put(`/api/sites/${ctx.site}`, { hours: { 1: { close: '25:00' } } })).status, 400, 'orario non valido');
+    r = await A.get(`/api/comms/daily?date=${D}`);
+    const rowSite = r.data.rows.find((x) => x.site_id === ctx.site);
+    assert.ok(['13:00', '12:00'].includes(rowSite.closing_time), JSON.stringify(rowSite.closing_time));
+    // controllo automatico forzato dal super amministratore: mattino (ieri) + post chiusura (oggi)
     r = await S.post('/api/comms/daily/run', {});
     assert.equal(r.status, 200, JSON.stringify(r.data));
+    assert.ok(Array.isArray(r.data.closing.results));
+    const cl = r.data.closing.results.find((x) => x.site === 'Borgo San Lorenzo centro');
+    if (cl) assert.ok(['NON_CONFIGURATA', 'DUPLICATA'].includes(cl.status), JSON.stringify(cl));
     // NC: apertura notifica la sede (registrata)
     r = await A.post('/api/nc', { site_id: ctx.site, kind: 'ERRORE', severity: 'BASSA', title: 'Prova notifica', description: 'Verifica invio email su apertura segnalazione' });
     assert.equal(r.status, 201, JSON.stringify(r.data));

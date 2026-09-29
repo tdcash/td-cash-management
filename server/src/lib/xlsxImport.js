@@ -10,6 +10,8 @@ export const SITE_COLUMNS = [
   ['fondo_cassa', 'Fondo cassa in euro (es. 150,00)', true],
   ['data_avvio', 'Data di avvio: primo giorno atteso (GG/MM/AAAA)', true],
   ['giorni_operativi', 'Giorni operativi lun..dom, 7 cifre 1/0 (es. 1111110)', false],
+  ['orario_apertura', 'Orario di apertura HH:MM, uguale per tutti i giorni operativi (per orari diversi per giorno usare la scheda sede)', false],
+  ['orario_chiusura', 'Orario di chiusura HH:MM: il sollecito parte 60 minuti dopo', false],
   ['terminali_pos', 'TID dei terminali POS separati da virgola', false],
   ['tipo', 'PROPRIA oppure OSPITATA', true],
   ['struttura_ospitante', 'Ragione sociale della struttura ospitante (solo OSPITATA)', false],

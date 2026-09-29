@@ -105,7 +105,7 @@ export default function ReportEdit() {
     if (!file) return;
     if (dirty) { const ok = await save(); if (!ok) return; }
     const fd = new FormData(); fd.append('file', file);
-    await run(async () => { const r = await api.upload(`/reports/${id}/system-pdf`, fd); setExtracted(r.extracted); }, 'PDF caricato');
+    await run(async () => { const r = await api.upload(`/reports/${id}/system-pdf`, fd); setExtracted(r.extracted); if (r.extracted.applied) set({ expected_total: r.extracted.total ?? '', expected_cash: r.extracted.cash ?? '', expected_pos: r.extracted.pos ?? '', expected_transfer: r.extracted.transfer ?? '' }); }, 'PDF caricato');
   };
   const openCustody = () => window.open(`/api/reports/${id}/custody.pdf`, '_blank', 'noopener');
 
@@ -172,14 +172,13 @@ export default function ReportEdit() {
           <Card title={`Scontrini POS (${form.receipts.length})`} flush actions={editable && <button className="btn sm" onClick={() => addRow('receipts', { circuit: 'BANCOMAT', terminal_id: terminals[0] || '', receipt_number: '', amount: '', auth_code: '' })}>+ Scontrino</button>}>
             {form.receipts.length ? (
               <div className="table-wrap"><table className="t">
-                <thead><tr><th>Circuito</th><th>Terminale</th><th>N. scontrino</th><th>Autorizz.</th><th className="num">Importo</th><th /></tr></thead>
+                <thead><tr><th>Circuito</th><th>Terminale</th><th>N. scontrino</th><th className="num">Importo</th><th /></tr></thead>
                 <tbody>
                   {form.receipts.map((x, i) => (
                     <tr key={i}>
                       <td style={{ minWidth: 150 }}><select disabled={!editable} value={x.circuit} onChange={(e) => setRow('receipts', i, { circuit: e.target.value })}>{Object.entries(CIRCUITS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></td>
                       <td><input disabled={!editable} list="tids" value={x.terminal_id} onChange={(e) => setRow('receipts', i, { terminal_id: e.target.value })} placeholder="TID" /></td>
                       <td><input disabled={!editable} value={x.receipt_number} onChange={(e) => setRow('receipts', i, { receipt_number: e.target.value })} /></td>
-                      <td><input disabled={!editable} value={x.auth_code} onChange={(e) => setRow('receipts', i, { auth_code: e.target.value })} /></td>
                       <td style={{ width: 130 }}><MoneyInput disabled={!editable} value={x.amount} onChange={(v) => setRow('receipts', i, { amount: v })} autoFocus={i === form.receipts.length - 1 && x.amount === ''} /></td>
                       <td style={{ width: 70 }} className="num">
                         {x.matched_tx_id && <span title="Riconciliato con il gateway"><Badge tone="green">ok</Badge></span>}
@@ -223,13 +222,15 @@ export default function ReportEdit() {
               </div>
             )}
             {extracted && (
-              <div className="alert info" style={{ marginBottom: 12, display: 'block' }}>
-                <b>Importi letti dal PDF</b>{extracted.date && <> (data {itDate(extracted.date)})</>}: contanti {eur(extracted.cash)}, POS {eur(extracted.pos)}, bonifici {eur(extracted.transfer)}, totale {eur(extracted.total)}.
-                {extracted.confidence < 1 && <span className="red"> Riconoscimento parziale: controlla i campi.</span>}
-                <div className="row" style={{ marginTop: 8 }}>
-                  <button className="btn sm" onClick={() => { set({ expected_total: extracted.total ?? '', expected_cash: extracted.cash ?? '', expected_pos: extracted.pos ?? '', expected_transfer: extracted.transfer ?? '' }); setExtracted(null); }}>Usa questi valori</button>
+              <div className={`alert ${extracted.date_mismatch ? 'warn' : extracted.applied ? 'ok' : 'info'}`} style={{ marginBottom: 12, display: 'block' }}>
+                <b>{extracted.applied ? 'Sezioni del gestionale compilate dal PDF' : 'Importi letti dal PDF'}</b>{extracted.date && <> (Stampa cassa del {itDate(extracted.date)}{extracted.date_to && extracted.date_to !== extracted.date && <> al {itDate(extracted.date_to)}</>})</>}: contanti {eur(extracted.cash)}, POS {eur(extracted.pos)}, bonifici {eur(extracted.transfer)}, totale incassato {eur(extracted.total)}.
+                {extracted.other > 0 && <span> Altre modalità non classificate: {eur(extracted.other)} ({extracted.modes.filter((m) => m.kind === 'other').map((m) => m.label).join(', ')}).</span>}
+                {extracted.date_mismatch && <span className="red"> La data della stampa non coincide con il giorno del rendiconto: valori non applicati.</span>}
+                {extracted.confidence < 1 && <span className="red"> Tracciato non riconosciuto per intero: controlla i campi.</span>}
+                {!extracted.applied && <div className="row" style={{ marginTop: 8 }}>
+                  <button className="btn sm" onClick={() => { set({ expected_total: extracted.total ?? '', expected_cash: extracted.cash ?? '', expected_pos: extracted.pos ?? '', expected_transfer: extracted.transfer ?? '' }); setExtracted(null); }}>Usa comunque questi valori</button>
                   <button className="btn sm ghost" onClick={() => setExtracted(null)}>Inserisco a mano</button>
-                </div>
+                </div>}
               </div>
             )}
             <div className="form-grid">

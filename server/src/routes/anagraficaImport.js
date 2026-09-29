@@ -23,7 +23,7 @@ r.get('/template/:kind.xlsx', ah(async (req, res) => {
   const kind = req.params.kind;
   if (!['sites', 'users'].includes(kind)) throw bad('Modello inesistente');
   const sample = kind === 'sites'
-    ? [{ codice: 'ESEMPIO01', azienda: isSuper(req.user) ? 'TD' : '', nome: 'Punto prelievo Esempio', indirizzo: 'Via Roma 1', citta: 'Firenze', provincia: 'FI', email_sede: 'esempio@toscanadiagnostica.it', fondo_cassa: 150, data_avvio: '01/10/2026', giorni_operativi: '1111110', terminali_pos: '', tipo: 'OSPITATA', struttura_ospitante: 'Farmacia Esempio', piva_struttura: '', email_struttura: 'amministrazione@farmaciaesempio.it', quota_fissa_mensile: 300, percentuale: 2.5, base_percentuale: 'TOTALE', iva: 22, note_contratto: '' }]
+    ? [{ codice: 'ESEMPIO01', azienda: isSuper(req.user) ? 'TD' : '', nome: 'Punto prelievo Esempio', indirizzo: 'Via Roma 1', citta: 'Firenze', provincia: 'FI', email_sede: 'esempio@toscanadiagnostica.it', fondo_cassa: 150, data_avvio: '01/10/2026', giorni_operativi: '1111110', orario_apertura: '07:30', orario_chiusura: '13:00', terminali_pos: '', tipo: 'OSPITATA', struttura_ospitante: 'Farmacia Esempio', piva_struttura: '', email_struttura: 'amministrazione@farmaciaesempio.it', quota_fissa_mensile: 300, percentuale: 2.5, base_percentuale: 'TOTALE', iva: 22, note_contratto: '' }]
     : [{ email: 'mario.rossi@toscanadiagnostica.it', nome_cognome: 'Mario Rossi', ruolo: 'OPERATOR', azienda: isSuper(req.user) ? 'TD' : '', accesso: 'ENTRAMBI', sedi: 'ESEMPIO01', attivo: 'SI' }];
   const buf = await buildTemplate(kind, sample);
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -65,6 +65,11 @@ async function checkSites(req, rows) {
     const od = String(x.giorni_operativi || '1111110').trim();
     if (!/^[01]{7}$/.test(od)) errors.push('Giorni operativi: 7 cifre 0/1');
     const tipo = String(x.tipo || 'OSPITATA').trim().toUpperCase();
+    const hhmm = (v) => { if (v === '' || v == null) return null; const m = String(v).trim().match(/^(\d{1,2})[:.](\d{2})/); return m ? `${m[1].padStart(2, '0')}:${m[2]}` : NaN; };
+    const hOpen = hhmm(x.orario_apertura), hClose = hhmm(x.orario_chiusura);
+    if (Number.isNaN(hOpen) || Number.isNaN(hClose)) errors.push('Orari: formato HH:MM');
+    const hours = {};
+    if (!Number.isNaN(hOpen) && !Number.isNaN(hClose) && (hOpen || hClose)) for (let i = 0; i < 7; i++) if (od[i] === '1') hours[String(i + 1)] = { open: hOpen, close: hClose };
     if (!['PROPRIA', 'OSPITATA'].includes(tipo)) errors.push('Tipo: PROPRIA o OSPITATA');
     for (const [k, label] of [['email_sede', 'Email sede'], ['email_struttura', 'Email struttura']]) if (x[k] && !EMAIL_RE.test(String(x[k]).trim())) errors.push(`${label} non valida`);
     const fixed = parseNum(x.quota_fissa_mensile) ?? 0, pct = parseNum(x.percentuale) ?? 0, vat = parseNum(x.iva) ?? 0;
@@ -73,7 +78,7 @@ async function checkSites(req, rows) {
     if (!['TOTALE', 'CONTANTI_POS', 'CONTANTI'].includes(base)) errors.push('Base percentuale: TOTALE, CONTANTI_POS o CONTANTI');
     const existing = cid && code ? await one('SELECT id FROM sites WHERE company_id=$1 AND code=$2', [cid, code]) : null;
     const d = { company_id: cid, code, name, address: x.indirizzo || null, city: x.citta || null, province: x.provincia ? String(x.provincia).toUpperCase() : null,
-      site_email: x.email_sede ? String(x.email_sede).trim().toLowerCase() : null, cash_float, start_date, operating_days: od, pos_terminals: x.terminali_pos || null, ownership: tipo,
+      site_email: x.email_sede ? String(x.email_sede).trim().toLowerCase() : null, cash_float, start_date, operating_days: od, hours: JSON.stringify(hours), pos_terminals: x.terminali_pos || null, ownership: tipo,
       host_name: tipo === 'PROPRIA' ? null : x.struttura_ospitante || null, host_vat: tipo === 'PROPRIA' ? null : x.piva_struttura || null, host_email: tipo === 'PROPRIA' ? null : (x.email_struttura ? String(x.email_struttura).trim().toLowerCase() : null),
       royalty_fixed_monthly: tipo === 'PROPRIA' ? 0 : fixed, royalty_pct: tipo === 'PROPRIA' ? 0 : pct, royalty_base: base, royalty_vat_rate: tipo === 'PROPRIA' ? 0 : vat, royalty_notes: tipo === 'PROPRIA' ? null : x.note_contratto || null };
     out.push({ row: x._row, code, name, action: existing ? 'AGGIORNA' : 'CREA', id: existing?.id || null, errors, data: d });

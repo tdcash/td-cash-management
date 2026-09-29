@@ -184,10 +184,10 @@ export async function buildSlipPdf({ report, company, site, number, revision, pr
       rows.forEach((r) => row(r));
       y += 8;
     };
-    detail('Dettaglio scontrini POS', ['Circuito / terminale / n. scontrino', 'Autorizz.', 'Importo'], [0.62, 0.16, 0.22],
+    detail('Dettaglio scontrini POS', ['Circuito / terminale', 'N. scontrino', 'Importo'], [0.62, 0.16, 0.22],
       report.receipts.map((x) => [
-        [CIRCUIT_LABEL[x.circuit] || x.circuit, x.terminal_id && `TID ${x.terminal_id}`, x.receipt_number && `n. ${x.receipt_number}`].filter(Boolean).join(' · '),
-        x.auth_code || '', eur(x.amount)]));
+        [CIRCUIT_LABEL[x.circuit] || x.circuit, x.terminal_id && `TID ${x.terminal_id}`].filter(Boolean).join(' · '),
+        x.receipt_number || '', eur(x.amount)]));
     detail('Dettaglio bonifici', ['CRO / TRN · ordinante', 'Valuta', 'Importo'], [0.62, 0.16, 0.22],
       report.transfers.map((x) => [[x.cro, x.payer].filter(Boolean).join(' · '), x.value_date ? itDate(x.value_date) : '', eur(x.amount)]));
 

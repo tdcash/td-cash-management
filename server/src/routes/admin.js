@@ -100,6 +100,9 @@ const siteSchema = z.object({
   cash_float: z.number().min(0).max(100000),
   start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data di avvio non valida'),
   ownership: z.enum(['PROPRIA', 'OSPITATA']).default('OSPITATA'),
+  // orari: chiavi 1..7 (lun..dom) -> { open: 'HH:MM', close: 'HH:MM' }
+  hours: z.record(z.string().regex(/^[1-7]$/), z.object({ open: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable().optional(), close: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable().optional() })).default({}),
+  hours_note: opt(z.string().max(300)),
   operating_days: z.string().regex(/^[01]{7}$/).default('1111110'),
   pos_terminals: opt(z.string().max(300)),
   active: z.boolean().default(true),
@@ -185,10 +188,10 @@ r.post('/sites', requireRole('SUPERADMIN', 'ADMIN'), ah(async (req, res) => {
   assertCompany(req.user, d.company_id);
   if (await one('SELECT 1 FROM sites WHERE company_id=$1 AND code=$2', [d.company_id, d.code])) throw bad('Codice sede già esistente per questa azienda');
   const row = await tx(async (c) => {
-    const s = (await c.query(`INSERT INTO sites (company_id, code, name, address, city, province, cash_float, start_date, ownership, operating_days, pos_terminals, active,
+    const s = (await c.query(`INSERT INTO sites (company_id, code, name, address, city, province, cash_float, start_date, ownership, hours, hours_note, operating_days, pos_terminals, active,
         host_name, host_vat, royalty_fixed_monthly, royalty_pct, royalty_base, royalty_vat_rate, royalty_notes, site_email, host_email)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21) RETURNING id`,
-    [d.company_id, d.code, d.name, d.address, d.city, d.province, d.cash_float, d.start_date, d.ownership, d.operating_days, d.pos_terminals, d.active,
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23) RETURNING id`,
+    [d.company_id, d.code, d.name, d.address, d.city, d.province, d.cash_float, d.start_date, d.ownership, JSON.stringify(d.hours), d.hours_note, d.operating_days, d.pos_terminals, d.active,
       d.host_name, d.host_vat, d.royalty_fixed_monthly, d.royalty_pct, d.royalty_base, d.royalty_vat_rate, d.royalty_notes, d.site_email || null, d.host_email || null])).rows[0];
     await c.query('INSERT INTO cash_float_history (site_id, old_value, new_value, changed_by, reason) VALUES ($1,NULL,$2,$3,$4)',
       [s.id, d.cash_float, req.user.id, 'Impostazione iniziale']);
@@ -217,6 +220,7 @@ r.put('/sites/:id', requireRole('SUPERADMIN', 'ADMIN'), ah(async (req, res) => {
       await c.query('INSERT INTO site_royalty_history (site_id, fixed_monthly, pct, vat_rate, base, changed_by) VALUES ($1,$2,$3,$4,$5,$6)',
         [site.id, d.royalty_fixed_monthly ?? site.royalty_fixed_monthly, d.royalty_pct ?? site.royalty_pct, d.royalty_vat_rate ?? site.royalty_vat_rate, d.royalty_base ?? site.royalty_base, req.user.id]);
     }
+    if (d.hours !== undefined) d.hours = JSON.stringify(d.hours);
     const cols = Object.keys(d);
     if (cols.length) await c.query(`UPDATE sites SET ${cols.map((k, i) => `${k}=$${i + 2}`).join(', ')}, updated_at=now() WHERE id=$1`, [site.id, ...cols.map((k) => d[k])]);
   });
@@ -359,7 +363,7 @@ r.post('/users/:id/reset-totp', requireRole('SUPERADMIN', 'ADMIN'), ah(async (re
 }));
 
 // ---------------- Impostazioni (creditore SEPA) ----------------
-const SETTINGS_KEYS = ['creditor_name', 'creditor_iban', 'creditor_bic', 'creditor_id', 'royalty_invoice_prefix', 'pickup_alert_days', 'daily_alert_hour', 'daily_alert_enabled', 'daily_summary_admins'];
+const SETTINGS_KEYS = ['creditor_name', 'creditor_iban', 'creditor_bic', 'creditor_id', 'royalty_invoice_prefix', 'pickup_alert_days', 'daily_alert_hour', 'daily_alert_enabled', 'daily_summary_admins', 'closing_alert_delay_minutes'];
 
 r.get('/settings', requireRole('SUPERADMIN'), ah(async (_req, res) => {
   const rows = await many('SELECT key, value FROM app_settings WHERE key = ANY($1)', [SETTINGS_KEYS]);
@@ -375,6 +379,7 @@ r.put('/settings', requireRole('SUPERADMIN'), ah(async (req, res) => {
     royalty_invoice_prefix: z.string().max(10).optional(),
     pickup_alert_days: z.string().regex(/^\d{1,2}$/).optional(),
     daily_alert_hour: z.string().regex(/^([01]?\d|2[0-3])$/).optional(),
+    closing_alert_delay_minutes: z.string().regex(/^\d{1,3}$/).optional(),
     daily_alert_enabled: z.enum(['true', 'false']).optional(),
     daily_summary_admins: z.enum(['true', 'false']).optional(),
   }), req.body);

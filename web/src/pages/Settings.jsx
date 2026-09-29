@@ -10,7 +10,7 @@ export default function Settings() {
   const daily = useApi('/comms/daily');
   const [testTo, setTestTo] = useState('');
   const [testRes, setTestRes] = useState(null);
-  useEffect(() => { if (data) setF({ creditor_name: '', creditor_iban: '', creditor_bic: '', creditor_id: '', royalty_invoice_prefix: 'RY', pickup_alert_days: '2', daily_alert_hour: '10', daily_alert_enabled: 'true', daily_summary_admins: 'true', ...data }); }, [data]);
+  useEffect(() => { if (data) setF({ creditor_name: '', creditor_iban: '', creditor_bic: '', creditor_id: '', royalty_invoice_prefix: 'RY', pickup_alert_days: '2', daily_alert_hour: '10', daily_alert_enabled: 'true', daily_summary_admins: 'true', closing_alert_delay_minutes: '60', ...data }); }, [data]);
   if (!f) return <div className="page"><Loading /></div>;
   const save = async () => { setErr(null); try { await api.put('/settings', f); toast('Impostazioni salvate'); } catch (e) { setErr(e); } };
   const i = (k, label, help, extra = {}) => <Field label={label} help={help}><input value={f[k] || ''} onChange={(e) => setF({ ...f, [k]: e.target.value })} {...extra} /></Field>;
@@ -39,7 +39,8 @@ export default function Settings() {
             {daily.data?.mail?.configured ? <Badge tone="green">attivo · {daily.data.mail.mode === 'microsoft365' ? 'Microsoft 365' : 'SMTP'} · {daily.data.mail.from}</Badge> : <Badge tone="red">non configurato: le email vengono solo registrate</Badge>}
           </div>
           <div className="form-grid">
-            {i('daily_alert_hour', 'Ora del controllo giornaliero (0-23)', 'Ogni giorno a quest\'ora il sistema verifica i rendiconti del giorno prima e sollecita le sedi mancanti', { type: 'number', min: 0, max: 23 })}
+            {i('closing_alert_delay_minutes', 'Sollecito alla sede: minuti dopo la chiusura', 'Se il rendiconto del giorno manca, la sede riceve il sollecito questo tempo dopo il suo orario di chiusura (orari in anagrafica sede)', { type: 'number', min: 0, max: 600 })}
+            {i('daily_alert_hour', 'Ora del riepilogo del mattino (0-23)', 'Ogni mattina il sistema riepiloga agli amministratori i rendiconti mancanti del giorno prima e sollecita le sedi senza orario di chiusura', { type: 'number', min: 0, max: 23 })}
             <Field label="Controllo automatico"><select value={f.daily_alert_enabled} onChange={(e) => setF({ ...f, daily_alert_enabled: e.target.value })}><option value="true">Attivo</option><option value="false">Disattivo</option></select></Field>
             <Field label="Riepilogo agli amministratori"><select value={f.daily_summary_admins} onChange={(e) => setF({ ...f, daily_summary_admins: e.target.value })}><option value="true">Sì, ogni giorno</option><option value="false">No</option></select></Field>
           </div>

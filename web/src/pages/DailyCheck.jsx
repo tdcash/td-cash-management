@@ -56,7 +56,7 @@ export default function DailyCheck() {
               <tr key={r.site_id} style={{ background: r.operating && !r.report_id ? 'var(--red-100)' : undefined }}>
                 <td><b>{r.site_name}</b><div className="small muted">{r.site_code}</div></td>
                 {user.role === 'SUPERADMIN' && <td>{r.company_name}</td>}
-                <td className="small">{r.site_email || <span className="red">mancante</span>}</td>
+                <td className="small">{r.site_email || <span className="red">mancante</span>}{r.closing_time && <div className="muted">chiude alle {r.closing_time}</div>}</td>
                 <td>{r.report_id ? <Link to={`/rendiconti/${r.report_id}`}><StatusBadge status={r.status} /></Link> : r.operating ? <Badge tone="red">Non inserito</Badge> : <Badge>Sede chiusa</Badge>}</td>
                 <td className="num">{r.report_id && r.status !== 'DRAFT' ? eur(Number(r.cash_to_deposit) + Number(r.pos_total) + Number(r.transfer_total)) : '–'}</td>
                 <td className="small muted">{r.created_by_name || ''}{r.updated_at && <div>{itDateTime(r.updated_at)}</div>}</td>
