@@ -26,6 +26,16 @@ import siteRoyaltyRoutes from './routes/siteRoyalty.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 app.set('trust proxy', 1);
+
+// Dominio canonico: se BASE_URL è un dominio pubblico, ogni richiesta arrivata su un altro host (es. td-cash.onrender.com)
+// viene reindirizzata in modo permanente allo stesso percorso sul dominio ufficiale. Il controllo di salute resta raggiungibile ovunque.
+const canonicalHost = (() => { try { const u = new URL(config.baseUrl); return /localhost|127\.0\.0\.1/.test(u.hostname) ? null : u.host; } catch { return null; } })();
+if (canonicalHost) {
+  app.use((req, res, next) => {
+    if (req.path === '/api/health' || req.hostname === canonicalHost) return next();
+    res.redirect(301, `https://${canonicalHost}${req.originalUrl}`);
+  });
+}
 app.disable('x-powered-by');
 
 app.use(helmet({

@@ -62,6 +62,10 @@ Orari di sede (v6.3): apertura e chiusura per giorno della settimana in anagrafi
 
 Le email di sede e della struttura ospitante si impostano nell'anagrafica sede, insieme alla data di avvio: primo giorno di lavoro da cui il sistema attende il rendiconto (obbligatoria; prima di quella data nessuna mancanza viene segnalata e nessun rendiconto è accettato). Il controllo automatico richiede un'istanza sempre attiva (su Render: piano a pagamento, non il piano gratuito che dorme).
 
+## Dominio ufficiale
+
+BASE_URL è il dominio pubblico dell'app (https://cash.toscanadiagnostica.it). Ogni richiesta che arriva su un altro nome (es. td-cash.onrender.com) viene reindirizzata in modo permanente allo stesso percorso sul dominio ufficiale, così link, email e segnalibri restano sempre su cash.toscanadiagnostica.it. Su Render il dominio va aggiunto in Settings > Custom Domains con un record CNAME `cash` verso td-cash.onrender.com.
+
 ## Microsoft 365: accesso e invio email
 
 Una sola registrazione app in Entra ID serve per entrambe le cose. Occorre un Global Administrator del tenant.

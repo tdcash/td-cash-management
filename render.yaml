@@ -14,7 +14,7 @@ services:
       - key: PORT
         value: "3000"
       - key: BASE_URL
-        value: https://td-cash.onrender.com   # sostituire con l'URL assegnato, poi con https://cash.toscanadiagnostica.it
+        value: https://cash.toscanadiagnostica.it   # dominio ufficiale: gli altri host vengono reindirizzati qui
       - key: DATABASE_URL
         fromDatabase:
           name: td-cash-db
@@ -32,11 +32,11 @@ services:
       - key: SEED_SUPERADMIN_PASSWORD
         sync: false   # inserire a mano nel pannello (min 12 caratteri): richiesta al primo accesso, poi da cambiare
       - key: ENTRA_TENANT_ID
-        value: ""
+        sync: false   # gestita nel pannello Render: il Sync del Blueprint non la sovrascrive
       - key: ENTRA_CLIENT_ID
-        value: ""
+        sync: false
       - key: ENTRA_CLIENT_SECRET
-        value: ""
+        sync: false
       - key: GRAPH_SENDER
         value: amministrazione@toscanadiagnostica.it   # casella mittente delle comunicazioni (via Microsoft Graph, richiede Mail.Send)
 databases:
