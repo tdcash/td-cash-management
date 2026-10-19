@@ -6,6 +6,7 @@ import { authenticator } from 'otplib';
 const BASE = process.env.BASE || 'http://localhost:3000';
 const SUPER = { email: 'francesco.epifani@toscanadiagnostica.it', password: process.env.SUPER_PWD || 'Prova-Sicura-2026' };
 const NEWPWD = 'NuovaPassword-2026';
+const SEPA_DATE = new Date(Date.now() + 10 * 86400000).toISOString().slice(0, 10); // addebito a 10 giorni: sempre valido
 
 function client() {
   let cookie = '';
@@ -211,9 +212,9 @@ test('flusso completo', async (t) => {
     const sts = await A.get('/api/royalty/statements');
     assert.equal(sts.data.length, 1);
     ctx.st = sts.data[0].id;
-    assert.equal((await S.post('/api/royalty/sepa/batches', { statement_ids: [ctx.st], collection_date: '2026-10-05' })).status, 400, 'senza dati creditore');
+    assert.equal((await S.post('/api/royalty/sepa/batches', { statement_ids: [ctx.st], collection_date: SEPA_DATE })).status, 400, 'senza dati creditore');
     await S.put('/api/settings', { creditor_name: 'Toscana Diagnostica S.r.l.', creditor_iban: 'IT60X0542811101000000123456', creditor_id: 'IT98ZZZ0000007528130482' });
-    r = await S.post('/api/royalty/sepa/batches', { statement_ids: [ctx.st], collection_date: '2026-10-05' });
+    r = await S.post('/api/royalty/sepa/batches', { statement_ids: [ctx.st], collection_date: SEPA_DATE });
     assert.equal(r.status, 201, JSON.stringify(r.data));
     const xml = await (await S.raw(`/api/royalty/sepa/batches/${r.data.id}/xml`)).text();
     assert.match(xml, /<SeqTp>FRST<\/SeqTp>/);
@@ -613,6 +614,114 @@ test('flusso completo', async (t) => {
     assert.ok(!(await A.get('/api/users')).data.some((u) => u.email === 'x@bioscienze.it'));
     // ripristino ruolo operatore di Luca per i test successivi
     await A.put(`/api/users/${lb.id}`, { email: lb.email, full_name: 'Luca Bianchi', role: 'OPERATOR', company_id: ctx.company, auth_provider: 'LOCAL', site_ids: [ctx.site], active: true });
+  });
+  await t.test('casse per operatore: due chiusure sulla stessa sede, numero casse attese, fondo cassa operatore', async () => {
+    // sede 1 passa a 2 casse attese; Anna (op2) viene abilitata anche sulla sede 1 con fondo proprio 50
+    let r = await A.put(`/api/sites/${ctx.site}`, { expected_registers: 2 });
+    assert.equal(r.status, 200, JSON.stringify(r.data));
+    const anna = (await A.get('/api/users')).data.find((u) => u.email === 'op2@bioscienze.it');
+    r = await A.put(`/api/users/${anna.id}`, { email: anna.email, full_name: anna.full_name, role: 'OPERATOR', company_id: ctx.company, auth_provider: 'LOCAL', site_ids: [ctx.site, ctx.site2], active: true, cash_float: 50 });
+    assert.equal(r.status, 200, JSON.stringify(r.data));
+    assert.equal(Number((await A.get('/api/users')).data.find((u) => u.id === anna.id).cash_float), 50);
+    const D = '2026-09-28';
+    // Luca apre la sua cassa, Anna la sua: stessa sede, stesso giorno
+    r = await O.post('/api/reports', { site_id: ctx.site, report_date: D });
+    assert.equal(r.status, 201, JSON.stringify(r.data)); const r1 = r.data.id;
+    r = await O2.post('/api/reports', { site_id: ctx.site, report_date: D });
+    assert.equal(r.status, 201, JSON.stringify(r.data)); const r2 = r.data.id;
+    assert.notEqual(r1, r2);
+    assert.equal(Number((await O2.get(`/api/reports/${r2}`)).data.cash_float), 50, 'fondo cassa dell\'operatore');
+    assert.equal(Number((await O.get(`/api/reports/${r1}`)).data.cash_float), 200, 'fondo cassa della sede');
+    // la seconda apertura dello stesso operatore risponde 409 con l'id esistente
+    r = await O.post('/api/reports', { site_id: ctx.site, report_date: D });
+    assert.equal(r.status, 409); assert.equal(r.data.id, r1);
+    // Luca non apre la cassa di Anna; l'amministratore sì (ma esiste già -> 409)
+    assert.equal((await O.post('/api/reports', { site_id: ctx.site, report_date: '2026-09-27', operator_id: anna.id })).status, 403);
+    r = await A.post('/api/reports', { site_id: ctx.site, report_date: D, operator_id: anna.id });
+    assert.equal(r.status, 409);
+    r = await A.post('/api/reports', { site_id: ctx.site, report_date: '2026-09-27', operator_id: anna.id });
+    assert.equal(r.status, 201, JSON.stringify(r.data));
+    assert.equal((await A.get(`/api/reports/${r.data.id}`)).data.operator_name, 'Anna Verdi');
+    await A.del(`/api/reports/${r.data.id}`, { reason: 'Prova apertura cassa altrui' });
+    // controllo giornaliero: 2 casse su 2, nessuna mancante; il 27 (solo una... anzi zero) mancano 2
+    r = await A.get(`/api/comms/daily?date=${D}`);
+    const row = r.data.rows.find((x) => x.site_id === ctx.site);
+    assert.equal(row.expected_registers, 2); assert.equal(row.reports_count, 2); assert.equal(row.missing_registers, 0);
+    assert.equal(row.registers.length, 2);
+    // elenco rendiconti: entrambi, con operatore
+    r = await O.get(`/api/reports?site_id=${ctx.site}&from=${D}&to=${D}`);
+    assert.equal(r.data.length, 2);
+    assert.ok(r.data.some((x) => x.operator_name === 'Luca Bianchi') && r.data.some((x) => x.operator_name === 'Anna Verdi'));
+    // Luca non elimina la bozza di Anna
+    assert.equal((await O.del(`/api/reports/${r2}`)).status, 403);
+    // cruscotto di oggi: casse attese e mancanti
+    r = await A.get('/api/stats/today');
+    assert.equal(r.data.find((x) => x.site_id === ctx.site).expected_registers, 2);
+    // ripristino
+    await O.del(`/api/reports/${r1}`); await O2.del(`/api/reports/${r2}`);
+    await A.put(`/api/sites/${ctx.site}`, { expected_registers: 1 });
+  });
+  await t.test('controllo mensile GIPO: sezionali, lettura PDF per utente, confronto, export', async () => {
+    const fs = await import('node:fs');
+    // sezionali precaricati dall'export GIPO
+    let r = await S.get('/api/controllo-mensile/sezionali');
+    assert.equal(r.status, 200, JSON.stringify(r.data));
+    assert.ok(r.data.length >= 20);
+    assert.ok(r.data.find((x) => x.code === '02' && /Borgo/.test(x.description)));
+    assert.equal((await A.get('/api/controllo-mensile/sezionali')).status, 403, 'solo super amministratore');
+    // associo /02 alla sede BSL01 e /07 alla sede BSL02
+    r = await S.put('/api/controllo-mensile/sezionali/02', { site_id: ctx.site });
+    assert.equal(r.status, 200, JSON.stringify(r.data));
+    await S.put('/api/controllo-mensile/sezionali/07', { site_id: ctx.site2 });
+    // utente GIPO = email censita: creo rosetta come operatore di entrambe le sedi, con rendiconto del 16/10 che quadra (207 contanti) e nessuno del 13/10
+    r = await A.post('/api/users', { email: 'rosetta.greco@toscanadiagnostica.it', full_name: 'Rosetta Greco', role: 'OPERATOR', company_id: ctx.company, auth_provider: 'LOCAL', site_ids: [ctx.site, ctx.site2] });
+    assert.equal(r.status, 201, JSON.stringify(r.data));
+    const R = client(); await loginWithOnboarding(R, 'rosetta.greco@toscanadiagnostica.it', r.data.temporaryPassword, NEWPWD, false);
+    r = await R.post('/api/reports', { site_id: ctx.site, report_date: '2026-10-16' });
+    assert.equal(r.status, 201, JSON.stringify(r.data)); const rep = r.data.id;
+    r = await R.put(`/api/reports/${rep}`, { denominations: { 200: 2, 5: 1, 1: 2 } }); // 407 - fondo 200 = 207
+    assert.equal(r.status, 200, JSON.stringify(r.data));
+    await R.post(`/api/reports/${rep}/envelope`, { code: 'MP00101010', confirm: 'MP00101010' });
+    await R.post(`/api/reports/${rep}/process`);
+    // un rendiconto di Luca a ottobre senza incasso GIPO
+    r = await O.post('/api/reports', { site_id: ctx.site, report_date: '2026-10-05' });
+    await O.put(`/api/reports/${r.data.id}`, { denominations: { 50: 5 } }); // 250-200 = 50
+    await O.post(`/api/reports/${r.data.id}/envelope`, { code: 'MP00101011', confirm: 'MP00101011' });
+    await O.post(`/api/reports/${r.data.id}/process`);
+    // esecuzione
+    const fd = new FormData(); fd.append('period', '2026-10');
+    fd.append('files', new Blob([fs.readFileSync(new URL('./fixtures/gipo_per_utente_esempio.pdf', import.meta.url))], { type: 'application/pdf' }), 'gestione-cassa per utente.pdf');
+    assert.equal((await A.post('/api/controllo-mensile/run', fd)).status, 403);
+    r = await S.post('/api/controllo-mensile/run', fd);
+    assert.equal(r.status, 201, JSON.stringify(r.data).slice(0, 500));
+    const Sm = r.data.summary;
+    assert.equal(Sm.gipo_total, 207.4);
+    const q16 = r.data.rows.find((x) => x.date === '2026-10-16' && x.site_id === ctx.site);
+    assert.equal(q16.outcome, 'QUADRA', JSON.stringify(q16)); assert.equal(q16.declared, 207); assert.equal(q16.gipo_amount, 207);
+    const m13 = r.data.rows.find((x) => x.date === '2026-10-13' && x.site_id === ctx.site2);
+    assert.equal(m13.outcome, 'RENDICONTO_MANCANTE'); assert.equal(m13.gipo_amount, 0.4);
+    const s05 = r.data.rows.find((x) => x.date === '2026-10-05');
+    assert.equal(s05.outcome, 'SENZA_GIPO'); assert.equal(s05.declared, 50);
+    assert.equal(Sm.modes_gipo.cash, 207); assert.equal(Sm.modes_gipo.transfer, 0.4);
+    assert.equal(Sm.quadra, 1); assert.equal(Sm.mancanti, 1); assert.equal(Sm.senza_gipo, 1);
+    const id = r.data.id;
+    // export
+    let raw = await S.raw(`/api/controllo-mensile/${id}/pdf`);
+    assert.equal(raw.headers.get('content-type'), 'application/pdf');
+    fs.writeFileSync('/tmp/controllo_mensile_test.pdf', Buffer.from(await raw.arrayBuffer()));
+    raw = await S.raw(`/api/controllo-mensile/${id}/xlsx`);
+    assert.match(raw.headers.get('content-type'), /spreadsheetml/);
+    const ExcelJS = (await import('exceljs')).default;
+    const wb = new ExcelJS.Workbook(); await wb.xlsx.load(Buffer.from(await raw.arrayBuffer()));
+    assert.equal(wb.worksheets[0].rowCount, 4);
+    fs.writeFileSync('/tmp/controllo_mensile_test.xlsx', Buffer.from(await wb.xlsx.writeBuffer()));
+    // sezionale non associato -> segnalazione
+    await S.put('/api/controllo-mensile/sezionali/07', { site_id: null });
+    r = await S.post('/api/controllo-mensile/run', (() => { const f = new FormData(); f.append('period', '2026-10'); f.append('files', new Blob([fs.readFileSync(new URL('./fixtures/gipo_per_utente_esempio.pdf', import.meta.url))]), 'x.pdf'); return f; })());
+    assert.equal(r.data.summary.non_riconosciuti, 1);
+    assert.ok(r.data.summary.problems.some((p) => p.kind === 'SEZIONALE'));
+    assert.equal((await S.get('/api/controllo-mensile')).data.length, 2);
+    await S.del(`/api/controllo-mensile/${r.data.id}`);
   });
   await t.test('isolamento tra aziende', async () => {
     const r = await A.get('/api/companies');

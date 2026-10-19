@@ -1,0 +1,102 @@
+[
+ {
+  "code": "01",
+  "description": "SestoFiorentino(F),viadeiColatori,10/A",
+  "gipo_site_id": 510
+ },
+ {
+  "code": "02",
+  "description": "BorgoSanLorenzo,PiazzaMartinLutherKing",
+  "gipo_site_id": 505
+ },
+ {
+  "code": "04",
+  "description": "Firenze(FI),ViadellaFortezza,6",
+  "gipo_site_id": 511
+ },
+ {
+  "code": "05",
+  "description": "Firenze(FI),ViaGianodellaBella,6",
+  "gipo_site_id": 512
+ },
+ {
+  "code": "06",
+  "description": "Montemurlo(PO)ViaMontalese,653",
+  "gipo_site_id": 513
+ },
+ {
+  "code": "07",
+  "description": "Quarrata(PT)ViadellaRepubblica,88/C",
+  "gipo_site_id": 514
+ },
+ {
+  "code": "08",
+  "description": "Calenzano(FI)ViadiPrato,26",
+  "gipo_site_id": 506
+ },
+ {
+  "code": "09",
+  "description": "Livorno(LI)Piazzale185Reggimento",
+  "gipo_site_id": 517
+ },
+ {
+  "code": "10",
+  "description": "Livorno(LI)ViaGiovanniMarch,20",
+  "gipo_site_id": 518
+ },
+ {
+  "code": "11",
+  "description": "Livorno(LI)ViaRoma,51",
+  "gipo_site_id": 519
+ },
+ {
+  "code": "12",
+  "description": "Livorno(LI)ViadiMontenero,201",
+  "gipo_site_id": 520
+ },
+ {
+  "code": "13",
+  "description": "RosignanoSolvay(LI)",
+  "gipo_site_id": 521
+ },
+ {
+  "code": "14",
+  "description": "Livorno(LI)PiazzaleMontello,12/A",
+  "gipo_site_id": 522
+ },
+ {
+  "code": "15",
+  "description": "Livorno(LI)ViaAurelioLampredi,3",
+  "gipo_site_id": 516
+ },
+ {
+  "code": "16",
+  "description": "Service di Laboratorio",
+  "gipo_site_id": null
+ },
+ {
+  "code": "17",
+  "description": "Medicina del Lavoro",
+  "gipo_site_id": null
+ },
+ {
+  "code": "18",
+  "description": "CampiBisenzio(FI)ViaBrunoBuozzi,27",
+  "gipo_site_id": 515
+ },
+ {
+  "code": "19",
+  "description": "PoggioaCaiano(PO)VialeAldoMoro,18",
+  "gipo_site_id": 509
+ },
+ {
+  "code": "20",
+  "description": "Fornacette(PI)ViaJuriGagarin",
+  "gipo_site_id": 559
+ },
+ {
+  "code": "21",
+  "description": "BorgoSanLorenzo(FI)Bosco",
+  "gipo_site_id": 558
+ }
+]

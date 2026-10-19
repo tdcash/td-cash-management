@@ -63,12 +63,13 @@ r.get('/summary', ah(async (req, res) => {
   if (req.query.company_id) w2.push(`s.company_id = ${P2.add(Number(req.query.company_id))}`);
   if (req.query.site_id) w2.push(`s.id = ${P2.add(Number(req.query.site_id))}`);
   const mFrom = P2.add(from), mTo = P2.add(to < yesterday ? to : yesterday);
-  const missing = await many(`SELECT s.id AS site_id, s.name AS site_name, c.name AS company_name, d::date AS date
+  const missing = await many(`SELECT s.id AS site_id, s.name AS site_name, c.name AS company_name, d::date AS date, s.expected_registers,
+      (SELECT count(*)::int FROM cash_reports r WHERE r.site_id=s.id AND r.report_date=d::date) AS reports_count
     FROM sites s JOIN companies c ON c.id=s.company_id
     CROSS JOIN LATERAL generate_series(greatest(${mFrom}::date, s.start_date), ${mTo}::date, interval '1 day') d
     WHERE ${w2.join(' AND ')}
       AND substr(s.operating_days, extract(isodow FROM d)::int, 1) = '1'
-      AND NOT EXISTS (SELECT 1 FROM cash_reports r WHERE r.site_id=s.id AND r.report_date=d::date)
+      AND (SELECT count(*) FROM cash_reports r WHERE r.site_id=s.id AND r.report_date=d::date) < s.expected_registers
     ORDER BY d DESC, s.name LIMIT 500`, P2.values);
 
   const alertDays = Number(await getSetting('pickup_alert_days', '2'));
@@ -106,12 +107,20 @@ r.get('/summary', ah(async (req, res) => {
 r.get('/today', ah(async (req, res) => {
   const P = new Params();
   const today = P.add(todayRome());
-  res.json(await many(`SELECT s.id AS site_id, s.name AS site_name, s.code AS site_code, c.name AS company_name, s.cash_float,
-      r.id AS report_id, r.status, (r.cash_to_deposit + r.pos_total + r.transfer_total) AS day_total,
-      (substr(s.operating_days, extract(isodow FROM ${today}::date)::int, 1) = '1' AND s.start_date <= ${today}::date) AS operating, s.start_date
+  const rows = await many(`SELECT s.id AS site_id, s.name AS site_name, s.code AS site_code, c.name AS company_name, s.cash_float, s.expected_registers,
+      (substr(s.operating_days, extract(isodow FROM ${today}::date)::int, 1) = '1' AND s.start_date <= ${today}::date) AS operating, s.start_date,
+      (SELECT json_agg(json_build_object('id', r.id, 'status', r.status, 'operator_id', r.operator_id, 'operator_name', u.full_name, 'total', r.cash_to_deposit + r.pos_total + r.transfer_total) ORDER BY u.full_name)
+         FROM cash_reports r LEFT JOIN users u ON u.id=r.operator_id WHERE r.site_id=s.id AND r.report_date=${today}::date) AS registers
     FROM sites s JOIN companies c ON c.id=s.company_id
-    LEFT JOIN cash_reports r ON r.site_id=s.id AND r.report_date=${today}::date
-    WHERE ${siteScope(req.user, P)} AND s.active ORDER BY c.name, s.name`, P.values));
+    WHERE ${siteScope(req.user, P)} AND s.active ORDER BY c.name, s.name`, P.values);
+  for (const x of rows) {
+    x.registers = x.registers || [];
+    const mine = x.registers.find((r) => r.operator_id === req.user.id);
+    x.report_id = (mine || x.registers[0])?.id || null; x.status = (mine || x.registers[0])?.status || null; x.my_report_id = mine?.id || null;
+    x.day_total = x.registers.reduce((a, r) => a + Number(r.total || 0), 0);
+    x.missing_registers = x.operating ? Math.max(0, x.expected_registers - x.registers.length) : 0;
+  }
+  res.json(rows);
 }));
 
 // Export CSV dei rendiconti (separatore ; per Excel italiano)

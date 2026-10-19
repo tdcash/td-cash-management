@@ -13,7 +13,7 @@ export async function loadUser(req, _res, next) {
     const id = req.session?.userId;
     if (id) {
       const u = await one(
-        `SELECT u.id, u.email, u.full_name, u.role, u.company_id, u.auth_provider, u.must_change_password,
+        `SELECT u.id, u.email, u.full_name, u.role, u.company_id, u.auth_provider, u.must_change_password, u.cash_float,
                 u.totp_enabled, u.active, c.name AS company_name, c.code AS company_code
            FROM users u LEFT JOIN companies c ON c.id = u.company_id WHERE u.id = $1`, [id]);
       if (u && u.active) {

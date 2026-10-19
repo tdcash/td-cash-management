@@ -103,6 +103,7 @@ const siteSchema = z.object({
   // orari: chiavi 1..7 (lun..dom) -> { open: 'HH:MM', close: 'HH:MM' }
   hours: z.record(z.string().regex(/^[1-7]$/), z.object({ open: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable().optional(), close: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable().optional() })).default({}),
   hours_note: opt(z.string().max(300)),
+  expected_registers: z.number().int().min(1).max(20).default(1),
   operating_days: z.string().regex(/^[01]{7}$/).default('1111110'),
   pos_terminals: opt(z.string().max(300)),
   active: z.boolean().default(true),
@@ -188,10 +189,10 @@ r.post('/sites', requireRole('SUPERADMIN', 'ADMIN'), ah(async (req, res) => {
   assertCompany(req.user, d.company_id);
   if (await one('SELECT 1 FROM sites WHERE company_id=$1 AND code=$2', [d.company_id, d.code])) throw bad('Codice sede già esistente per questa azienda');
   const row = await tx(async (c) => {
-    const s = (await c.query(`INSERT INTO sites (company_id, code, name, address, city, province, cash_float, start_date, ownership, hours, hours_note, operating_days, pos_terminals, active,
+    const s = (await c.query(`INSERT INTO sites (company_id, code, name, address, city, province, cash_float, start_date, ownership, hours, hours_note, expected_registers, operating_days, pos_terminals, active,
         host_name, host_vat, royalty_fixed_monthly, royalty_pct, royalty_base, royalty_vat_rate, royalty_notes, site_email, host_email)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23) RETURNING id`,
-    [d.company_id, d.code, d.name, d.address, d.city, d.province, d.cash_float, d.start_date, d.ownership, JSON.stringify(d.hours), d.hours_note, d.operating_days, d.pos_terminals, d.active,
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24) RETURNING id`,
+    [d.company_id, d.code, d.name, d.address, d.city, d.province, d.cash_float, d.start_date, d.ownership, JSON.stringify(d.hours), d.hours_note, d.expected_registers, d.operating_days, d.pos_terminals, d.active,
       d.host_name, d.host_vat, d.royalty_fixed_monthly, d.royalty_pct, d.royalty_base, d.royalty_vat_rate, d.royalty_notes, d.site_email || null, d.host_email || null])).rows[0];
     await c.query('INSERT INTO cash_float_history (site_id, old_value, new_value, changed_by, reason) VALUES ($1,NULL,$2,$3,$4)',
       [s.id, d.cash_float, req.user.id, 'Impostazione iniziale']);
@@ -266,6 +267,7 @@ const userSchema = z.object({
   auth_provider: z.enum(['LOCAL', 'ENTRA', 'BOTH']),
   site_ids: z.array(z.number().int()).default([]),
   active: z.boolean().default(true),
+  cash_float: z.number().min(0).max(100000).nullable().optional(),   // fondo cassa dell'operatore (vuoto = fondo della sede)
 });
 
 async function checkUserPayload(req, d, existing) {
@@ -288,7 +290,7 @@ r.get('/users', requireRole('SUPERADMIN', 'ADMIN'), ah(async (req, res) => {
   const P = new Params();
   const where = [isSuper(req.user) ? 'TRUE' : `u.company_id = ${P.add(req.user.company_id)}`];
   if (req.query.company_id) where.push(`u.company_id = ${P.add(Number(req.query.company_id))}`);
-  const rows = await many(`SELECT u.id, u.email, u.full_name, u.role, u.company_id, u.auth_provider, u.totp_enabled, u.active,
+  const rows = await many(`SELECT u.id, u.email, u.full_name, u.role, u.company_id, u.auth_provider, u.totp_enabled, u.active, u.cash_float,
       u.must_change_password, u.last_login_at, u.locked_until, c.name AS company_name,
       coalesce((SELECT array_agg(site_id) FROM user_sites WHERE user_id=u.id), '{}') AS site_ids
     FROM users u LEFT JOIN companies c ON c.id=u.company_id WHERE ${where.join(' AND ')} ORDER BY u.active DESC, u.full_name`, P.values);
@@ -302,9 +304,9 @@ r.post('/users', requireRole('SUPERADMIN', 'ADMIN'), ah(async (req, res) => {
   const needsPwd = d.auth_provider !== 'ENTRA';
   const pwd = needsPwd ? tempPassword() : null;
   const row = await tx(async (c) => {
-    const u = (await c.query(`INSERT INTO users (email, full_name, role, company_id, auth_provider, password_hash, must_change_password, active)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
-    [d.email, d.full_name, d.role, d.company_id, d.auth_provider, pwd ? await bcrypt.hash(pwd, 12) : null, needsPwd, d.active])).rows[0];
+    const u = (await c.query(`INSERT INTO users (email, full_name, role, company_id, auth_provider, password_hash, must_change_password, active, cash_float)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+    [d.email, d.full_name, d.role, d.company_id, d.auth_provider, pwd ? await bcrypt.hash(pwd, 12) : null, needsPwd, d.active, d.role === 'OPERATOR' ? d.cash_float ?? null : null])).rows[0];
     for (const s of d.site_ids) await c.query('INSERT INTO user_sites VALUES ($1,$2)', [u.id, s]);
     return u;
   });
@@ -328,8 +330,8 @@ r.put('/users/:id', requireRole('SUPERADMIN', 'ADMIN'), ah(async (req, res) => {
       pwd = tempPassword();
       await c.query('UPDATE users SET password_hash=$2, must_change_password=TRUE WHERE id=$1', [id, await bcrypt.hash(pwd, 12)]);
     }
-    await c.query(`UPDATE users SET email=$2, full_name=$3, role=$4, company_id=$5, auth_provider=$6, active=$7, updated_at=now() WHERE id=$1`,
-      [id, d.email, d.full_name, d.role, d.company_id, d.auth_provider, d.active]);
+    await c.query(`UPDATE users SET email=$2, full_name=$3, role=$4, company_id=$5, auth_provider=$6, active=$7, cash_float=$8, updated_at=now() WHERE id=$1`,
+      [id, d.email, d.full_name, d.role, d.company_id, d.auth_provider, d.active, d.role === 'OPERATOR' ? d.cash_float ?? null : null]);
     await c.query('DELETE FROM user_sites WHERE user_id=$1', [id]);
     for (const s of d.site_ids) await c.query('INSERT INTO user_sites VALUES ($1,$2)', [id, s]);
     if (!d.active) await c.query(`DELETE FROM "session" WHERE (sess->>'userId')::int = $1`, [id]);

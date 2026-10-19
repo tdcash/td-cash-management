@@ -4,12 +4,13 @@ import { getSetting, itDate, eur, todayRome } from './util.js';
 
 // Sedi operative in una data senza rendiconto (per azienda o tutte)
 export async function missingReports(date, companyId = null) {
-  return many(`SELECT s.id AS site_id, s.name AS site_name, s.code AS site_code, s.site_email, s.company_id, s.hours, c.name AS company_name
+  return many(`SELECT s.id AS site_id, s.name AS site_name, s.code AS site_code, s.site_email, s.company_id, s.hours, c.name AS company_name, s.expected_registers,
+      (SELECT count(*)::int FROM cash_reports r WHERE r.site_id=s.id AND r.report_date=$1::date) AS reports_count
     FROM sites s JOIN companies c ON c.id=s.company_id
     WHERE s.active AND ($2::int IS NULL OR s.company_id=$2)
       AND substr(s.operating_days, extract(isodow FROM $1::date)::int, 1) = '1'
       AND s.start_date <= $1::date
-      AND NOT EXISTS (SELECT 1 FROM cash_reports r WHERE r.site_id=s.id AND r.report_date=$1::date)
+      AND (SELECT count(*) FROM cash_reports r WHERE r.site_id=s.id AND r.report_date=$1::date) < s.expected_registers
     ORDER BY c.name, s.name`, [date, companyId]);
 }
 
@@ -22,7 +23,7 @@ export async function sendMissingAlert(site, date, sentBy = null, automatic = fa
     kind: 'SOLLECITO', refKey: `SOLLECITO:${site.site_id}:${date}`, to: site.site_email, companyId: site.company_id, siteId: site.site_id, sentBy,
     subject: `Rendiconto di cassa mancante · ${site.site_name} · ${itDate(date)}`,
     title: 'Rendiconto di cassa mancante',
-    body: `Per la sede ${site.site_name} (${site.site_code}) non risulta inserito il rendiconto di cassa del ${itDate(date)}.\n\nVi chiediamo di compilarlo oggi stesso su Cash Management: conteggio del contante, scontrini POS, bonifici, busta Mondialpol e distinta.\n\nSe la sede è rimasta chiusa in quella data, segnalatelo all'amministratore di sede in risposta a questa email.`,
+    body: `Per la sede ${site.site_name} (${site.site_code}) ${site.expected_registers > 1 ? `risultano inserite ${site.reports_count || 0} chiusure di cassa su ${site.expected_registers} attese` : 'non risulta inserito il rendiconto di cassa'} per il ${itDate(date)}.\n\nVi chiediamo di compilarlo oggi stesso su Cash Management: conteggio del contante, scontrini POS, bonifici, busta Mondialpol e distinta.\n\nSe la sede è rimasta chiusa in quella data, segnalatelo all'amministratore di sede in risposta a questa email.`,
   });
 }
 

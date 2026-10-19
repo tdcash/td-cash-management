@@ -29,7 +29,7 @@ async function loadReport(user, id) {
 }
 
 async function fullReport(id) {
-  const rep = await one(`SELECT r.id, r.site_id, r.report_date, r.status, r.created_by, r.cash_float, r.coins_total, r.cash_counted, r.cash_to_deposit,
+  const rep = await one(`SELECT r.id, r.site_id, r.report_date, r.status, r.created_by, r.operator_id, ou.full_name AS operator_name, r.cash_float, r.coins_total, r.cash_counted, r.cash_to_deposit,
       r.pos_total, r.transfer_total, r.expected_total, r.expected_cash, r.expected_pos, r.expected_transfer, r.envelope_code, r.envelope_at,
       r.slip_number, r.slip_revision, r.slip_sha256, r.processed_at, r.pickup_operator, r.pickup_at,
       r.verified_amount, r.verified_at, r.verified_note, r.deposit_id, r.notes, r.created_at, r.updated_at,
@@ -38,7 +38,7 @@ async function fullReport(id) {
       s.name AS site_name, s.code AS site_code, s.company_id, c.name AS company_name, c.code AS company_code,
       pu.full_name AS processed_by_name, cu.full_name AS created_by_name
     FROM cash_reports r JOIN sites s ON s.id=r.site_id JOIN companies c ON c.id=s.company_id
-    LEFT JOIN users pu ON pu.id=r.processed_by LEFT JOIN users cu ON cu.id=r.created_by LEFT JOIN users vu ON vu.id=r.verified_by
+    LEFT JOIN users pu ON pu.id=r.processed_by LEFT JOIN users cu ON cu.id=r.created_by LEFT JOIN users vu ON vu.id=r.verified_by LEFT JOIN users ou ON ou.id=r.operator_id
     LEFT JOIN cash_deposits dep ON dep.id=r.deposit_id WHERE r.id=$1`, [id]);
   const den = await many('SELECT denom, qty FROM report_denominations WHERE report_id=$1', [id]);
   rep.denominations = Object.fromEntries(DENOMS.map((d) => [dkey(d), den.find((x) => Number(x.denom) === d)?.qty || 0]));
@@ -63,13 +63,13 @@ r.get('/', ah(async (req, res) => {
   if (from) where.push(`r.report_date >= ${P.add(from)}`);
   if (to) where.push(`r.report_date <= ${P.add(to)}`);
   const limit = Math.min(Number(req.query.limit) || 500, 2000);
-  res.json(await many(`SELECT r.id, r.site_id, r.report_date, r.status, r.created_by, r.cash_counted, r.cash_float, r.cash_to_deposit, r.pos_total, r.transfer_total,
+  res.json(await many(`SELECT r.id, r.site_id, r.report_date, r.status, r.created_by, r.operator_id, ou.full_name AS operator_name, r.cash_counted, r.cash_float, r.cash_to_deposit, r.pos_total, r.transfer_total,
       r.expected_total, r.envelope_code, r.slip_number, r.pickup_at, r.verified_amount, r.verified_at, r.deposit_id, dep.number AS deposit_number,
       (r.cash_to_deposit + r.pos_total + r.transfer_total) AS day_total,
       s.name AS site_name, s.code AS site_code, c.name AS company_name, c.id AS company_id,
       (SELECT count(*)::int FROM nonconformities n WHERE n.report_id=r.id AND n.status<>'CHIUSA') AS open_nc
-    FROM cash_reports r JOIN sites s ON s.id=r.site_id JOIN companies c ON c.id=s.company_id LEFT JOIN cash_deposits dep ON dep.id=r.deposit_id
-    WHERE ${where.join(' AND ')} ORDER BY r.report_date DESC, s.name LIMIT ${limit}`, P.values));
+    FROM cash_reports r JOIN sites s ON s.id=r.site_id JOIN companies c ON c.id=s.company_id LEFT JOIN cash_deposits dep ON dep.id=r.deposit_id LEFT JOIN users ou ON ou.id=r.operator_id
+    WHERE ${where.join(' AND ')} ORDER BY r.report_date DESC, s.name, ou.full_name LIMIT ${limit}`, P.values));
 }));
 
 r.get('/:id', ah(async (req, res) => {
@@ -82,17 +82,27 @@ const countOnly = (req, _res, next) => (canCount(req.user) ? next() : next(forbi
 r.use((req, _res, next) => (req.user.role === 'FINANCE' && req.method !== 'GET' ? next(forbidden('Il profilo Finance consulta i rendiconti in sola lettura')) : next()));
 
 r.post('/', countOnly, ah(async (req, res) => {
-  const d = parse(z.object({ site_id: z.number().int(), report_date: isoDate }), req.body);
+  const d = parse(z.object({ site_id: z.number().int(), report_date: isoDate, operator_id: z.number().int().optional() }), req.body);
   const site = await assertSite(req.user, d.site_id);
   if (!site.active) throw bad('Sede non attiva');
   if (d.report_date < site.start_date) throw bad(`La sede ${site.name} è operativa dal ${itDate(site.start_date)}: nessun rendiconto atteso prima`);
   if (d.report_date > todayRome()) throw bad('Non si può rendicontare una data futura');
-  const ex = await one('SELECT id FROM cash_reports WHERE site_id=$1 AND report_date=$2', [d.site_id, d.report_date]);
-  if (ex) return res.status(409).json({ error: 'Esiste già un rendiconto per questa sede e data', id: ex.id });
+  // cassa per operatore: un rendiconto per sede, giorno e operatore. Gli amministratori possono aprire la cassa di un altro operatore della sede.
+  let operatorId = req.user.id;
+  if (d.operator_id && d.operator_id !== req.user.id) {
+    if (!isAdmin(req.user)) throw forbidden('Puoi aprire solo la tua cassa');
+    const op = await one(`SELECT u.id FROM users u JOIN user_sites us ON us.user_id=u.id WHERE u.id=$1 AND us.site_id=$2 AND u.active AND u.role='OPERATOR'`, [d.operator_id, site.id]);
+    if (!op) throw bad('Operatore non assegnato a questa sede');
+    operatorId = d.operator_id;
+  }
+  const ex = await one('SELECT id FROM cash_reports WHERE site_id=$1 AND report_date=$2 AND operator_id=$3', [d.site_id, d.report_date, operatorId]);
+  if (ex) return res.status(409).json({ error: 'Esiste già il rendiconto di questa cassa per la data', id: ex.id });
+  const opRow = await one('SELECT cash_float FROM users WHERE id=$1', [operatorId]);
+  const cashFloat = opRow?.cash_float != null ? Number(opRow.cash_float) : Number(site.cash_float);
   const row = await tx(async (c) => {
-    const rep = (await c.query(`INSERT INTO cash_reports (site_id, report_date, cash_float, cash_to_deposit, created_by, updated_by)
-      VALUES ($1,$2,$3,$4,$5,$5) RETURNING id`, [d.site_id, d.report_date, site.cash_float, -Number(site.cash_float), req.user.id])).rows[0];
-    await event(c, rep.id, 'CREATO', `Fondo cassa ${eur(site.cash_float)}`, req.user.id);
+    const rep = (await c.query(`INSERT INTO cash_reports (site_id, report_date, cash_float, cash_to_deposit, created_by, updated_by, operator_id)
+      VALUES ($1,$2,$3,$4,$5,$5,$6) RETURNING id`, [d.site_id, d.report_date, cashFloat, -cashFloat, req.user.id, operatorId])).rows[0];
+    await event(c, rep.id, 'CREATO', `Fondo cassa ${eur(cashFloat)}${opRow?.cash_float != null ? ' (fondo dell\'operatore)' : ''}`, req.user.id);
     return rep;
   });
   await audit(req, 'REPORT_CREATE', 'report', row.id, d);
@@ -354,7 +364,7 @@ r.delete('/:id', ah(async (req, res) => {
     if (rep.status !== 'DRAFT' && reason.length < 5) throw bad('Indica la motivazione dell\'eliminazione (almeno 5 caratteri)');
   } else {
     if (rep.status !== 'DRAFT' || rep.slip_revision > 0) throw bad('Puoi eliminare solo bozze mai elaborate. Per gli altri casi chiedi a un amministratore.');
-    if (rep.created_by !== req.user.id) throw forbidden('Solo chi ha creato la bozza o un amministratore può eliminarla');
+    if (rep.created_by !== req.user.id && rep.operator_id !== req.user.id) throw forbidden('Solo il titolare della cassa o un amministratore può eliminarla');
   }
   const snapshot = await fullReport(rep.id);
   delete snapshot.events;
