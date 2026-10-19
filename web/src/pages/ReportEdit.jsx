@@ -117,6 +117,7 @@ export default function ReportEdit() {
         <div>
           <div className="small muted"><Link to="/rendiconti">Rendiconti</Link> / {rep.company_name}</div>
           <h1>{rep.site_name} · {weekday(rep.report_date)} {itDate(rep.report_date)}</h1>
+          <div className="small muted">Cassa di <b>{rep.operator_name}</b></div>
           <div className="sub row" style={{ gap: 8 }}><StatusBadge status={rep.status} />{rep.slip_number && <span className="mono">{rep.slip_number} rev. {rep.slip_revision}</span>}</div>
         </div>
         <div className="row">

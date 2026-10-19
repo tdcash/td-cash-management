@@ -2,10 +2,10 @@ import React, { useState } from 'react';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { useApi, Field, Loading, ErrorBox, Empty, Badge, Modal, useToast } from '../components/ui.jsx';
-import { itDateTime, ROLE, ROLE_HELP } from '../format.js';
+import { itDateTime, ROLE, ROLE_HELP, eur } from '../format.js';
 import { ImportButtons } from '../components/importxlsx.jsx';
 
-const empty = { email: '', full_name: '', role: 'OPERATOR', company_id: '', auth_provider: 'BOTH', site_ids: [], active: true };
+const empty = { email: '', full_name: '', role: 'OPERATOR', company_id: '', auth_provider: 'BOTH', site_ids: [], active: true, cash_float: '' };
 const PROVIDER = { LOCAL: 'Email e password', ENTRA: 'Solo Microsoft 365', BOTH: 'Microsoft 365 o password' };
 
 export default function Users() {
@@ -21,7 +21,7 @@ export default function Users() {
 
   const save = async () => {
     setErr(null);
-    const b = { ...edit, company_id: edit.role === 'SUPERADMIN' ? null : Number(edit.company_id || user.company_id), site_ids: ['OPERATOR', 'CASSIERE', 'PARTNER'].includes(edit.role) ? edit.site_ids : [] };
+    const b = { ...edit, company_id: edit.role === 'SUPERADMIN' ? null : Number(edit.company_id || user.company_id), site_ids: ['OPERATOR', 'CASSIERE', 'PARTNER'].includes(edit.role) ? edit.site_ids : [], cash_float: edit.role === 'OPERATOR' && edit.cash_float !== '' && edit.cash_float != null ? Number(edit.cash_float) : null };
     delete b.id; delete b.company_name; delete b.totp_enabled; delete b.must_change_password; delete b.last_login_at; delete b.locked_until;
     try {
       const r = edit.id ? await api.put(`/users/${edit.id}`, b) : await api.post('/users', b);
@@ -53,12 +53,12 @@ export default function Users() {
             <tr key={u.id}>
               <td className="strong">{u.full_name}</td><td>{u.email}</td><td>{ROLE[u.role]}</td>
               {sup && <td>{u.company_name || <span className="muted">tutte</span>}</td>}
-              <td>{['OPERATOR', 'CASSIERE', 'PARTNER'].includes(u.role) ? (u.site_ids || []).map((id) => <span key={id} className="chip">{sites.data?.find((s) => s.id === id)?.name || id}</span>) : <span className="muted small">tutte dell'azienda</span>}</td>
+              <td>{['OPERATOR', 'CASSIERE', 'PARTNER'].includes(u.role) ? (u.site_ids || []).map((id) => <span key={id} className="chip">{sites.data?.find((s) => s.id === id)?.name || id}</span>) : <span className="muted small">tutte dell'azienda</span>}{u.role === 'OPERATOR' && u.cash_float != null && <div className="small muted">fondo {eur(u.cash_float)}</div>}</td>
               <td className="small">{PROVIDER[u.auth_provider]}{u.auth_provider !== 'ENTRA' && <div>{u.totp_enabled ? <Badge tone="green">2FA attiva</Badge> : <Badge>2FA no</Badge>} {u.must_change_password && <Badge tone="mauve">password temporanea</Badge>}</div>}</td>
               <td className="small muted">{u.last_login_at ? itDateTime(u.last_login_at) : 'mai'}{u.locked_until && new Date(u.locked_until) > new Date() && <div className="red">bloccato</div>}</td>
               <td>{u.active ? <Badge tone="green">Attivo</Badge> : <Badge tone="red">Disattivo</Badge>}</td>
               <td className="num" style={{ whiteSpace: 'nowrap' }}>
-                <button className="btn sm ghost" onClick={() => setEdit({ ...u, company_id: u.company_id || '', site_ids: u.site_ids || [] })}>Modifica</button>
+                <button className="btn sm ghost" onClick={() => setEdit({ ...u, company_id: u.company_id || '', site_ids: u.site_ids || [], cash_float: u.cash_float ?? '' })}>Modifica</button>
                 {u.auth_provider !== 'ENTRA' && <>{' '}<button className="btn sm ghost" onClick={() => reset(u, 'pwd')}>Reset pwd</button></>}
                 {u.totp_enabled && <>{' '}<button className="btn sm ghost" onClick={() => reset(u, 'totp')}>Reset 2FA</button></>}
               </td>
@@ -79,6 +79,7 @@ export default function Users() {
             <div style={{ marginTop: 12 }}>
               <div className="small strong muted" style={{ marginBottom: 6 }}>Sedi su cui può operare</div>
               {compSites.length ? <div className="row">{compSites.map((s) => <label key={s.id} className="f inline"><input type="checkbox" checked={edit.site_ids.includes(s.id)} onChange={(e) => setEdit({ ...edit, site_ids: e.target.checked ? [...edit.site_ids, s.id] : edit.site_ids.filter((x) => x !== s.id) })} />{s.name}</label>)}</div> : <div className="small red">Nessuna sede per questa azienda: creala prima.</div>}
+              {edit.role === 'OPERATOR' && <div className="form-grid" style={{ marginTop: 12 }}><Field label="Fondo cassa dell'operatore (€)" help="Vuoto: usa il fondo cassa della sede. Ogni operatore ha la propria cassa e la propria chiusura."><input type="number" step="0.01" min="0" value={edit.cash_float ?? ''} onChange={(e) => setEdit({ ...edit, cash_float: e.target.value })} placeholder="come la sede" /></Field></div>}
             </div>
           )}
           {edit.id && <label className="f inline" style={{ marginTop: 12 }}><input type="checkbox" checked={!!edit.active} onChange={(e) => setEdit({ ...edit, active: e.target.checked })} />Utente attivo</label>}

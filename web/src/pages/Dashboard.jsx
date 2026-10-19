@@ -55,9 +55,9 @@ export default function Dashboard() {
             {todayRows.data ? (
               <table className="t"><tbody>
                 {todayRows.data.map((r) => (
-                  <tr key={r.site_id} className="click" onClick={() => nav(r.report_id ? `/rendiconti/${r.report_id}` : counter ? `/rendiconti/nuovo?site=${r.site_id}` : '/rendiconti')}>
+                  <tr key={r.site_id} className="click" onClick={() => nav(r.my_report_id ? `/rendiconti/${r.my_report_id}` : counter && r.operating ? `/rendiconti/nuovo?site=${r.site_id}` : r.report_id ? `/rendiconti/${r.report_id}` : '/rendiconti')}>
                     <td><div className="strong">{r.site_name}</div>{user.role === 'SUPERADMIN' && <div className="small muted">{r.company_name}</div>}</td>
-                    <td className="num">{r.report_id ? <StatusBadge status={r.status} /> : r.operating ? <Badge tone="red">Da fare</Badge> : <Badge>Chiusa</Badge>}</td>
+                    <td className="num">{r.expected_registers > 1 ? <>{r.registers.map((g) => <div key={g.id} className="small">{g.operator_name}: <StatusBadge status={g.status} /></div>)}{r.operating && r.missing_registers > 0 && <Badge tone="red">{r.missing_registers} {r.missing_registers === 1 ? 'cassa da fare' : 'casse da fare'}</Badge>}{!r.operating && <Badge>Chiusa</Badge>}</> : r.report_id ? <StatusBadge status={r.status} /> : r.operating ? <Badge tone="red">Da fare</Badge> : <Badge>Chiusa</Badge>}</td>
                   </tr>
                 ))}
                 {!todayRows.data.length && <tr><td className="muted">Nessuna sede</td></tr>}
@@ -91,7 +91,7 @@ export default function Dashboard() {
                 <thead><tr><th>Data</th><th>Sede</th><th /></tr></thead>
                 <tbody>{d.missing.map((m) => (
                   <tr key={`${m.site_id}-${m.date}`}>
-                    <td>{weekday(m.date)} {itDate(m.date)}</td><td>{m.site_name}{user.role === 'SUPERADMIN' && <span className="small muted"> · {m.company_name}</span>}</td>
+                    <td>{weekday(m.date)} {itDate(m.date)}</td><td>{m.site_name}{user.role === 'SUPERADMIN' && <span className="small muted"> · {m.company_name}</span>}{m.expected_registers > 1 && <div className="small muted">{m.reports_count} casse su {m.expected_registers}</div>}</td>
                     <td className="num">{counter && <Link className="btn sm ghost" to={`/rendiconti/nuovo${qs({ site: m.site_id, date: m.date })}`}>Compila</Link>}</td>
                   </tr>))}</tbody>
               </table></div>

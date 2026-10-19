@@ -52,6 +52,12 @@ Aggiornamento: `git pull && docker compose up -d --build`. Le migrazioni si appl
 
 Ripristino di un backup: `docker compose exec -T db pg_restore -U cash -d cash --clean /backup/<file>.dump`.
 
+## Casse per operatore e controllo mensile GIPO (v7)
+
+Ogni operatore ha la propria cassa: un rendiconto per sede, giorno e operatore (gli amministratori possono aprire la cassa di un operatore della sede). Il fondo cassa dell'operatore si imposta in Utenti; se vuoto vale quello della sede. In anagrafica sede si indica il numero di casse attese al giorno: il controllo giornaliero, i solleciti e il cruscotto si aspettano quel numero di chiusure.
+
+Controllo mensile casse (menu riservato al super amministratore): a fine mese si carica la "Stampa cassa per utente" di GIPO (uno o più PDF, tutte le sedi, raggruppata per utente). Ogni movimento viene attribuito alla sede dal sezionale (numero dopo la barra, tabella Sezionali GIPO in Impostazioni, precaricata dall'export sezionali e modificabile) e all'operatore dall'email dell'utente GIPO, che deve coincidere con quella censita. Per ogni sede, giorno e operatore: incasso GIPO contro dichiarato (contanti + POS + bonifici) e verificato in riconteggio; esiti: quadra, ammanco, eccedenza, rendiconto mancante, rendiconto in bozza, rendiconto senza incasso GIPO, sede o operatore non riconosciuto. Confronto delle modalità di pagamento sul totale del mese. Ogni controllo resta in archivio con export PDF (carta intestata) e XLSX (dettaglio, riepilogo, per sede, segnalazioni).
+
 ## Comunicazioni (v5)
 
 Controllo giornaliero: pagina dedicata per gli amministratori con lo stato di ogni sede per il giorno scelto (rendiconto inserito, in bozza, mancante, sede chiusa per calendario). Ogni mattina all'ora impostata (default 10:00) il sistema verifica il giorno precedente, invia un sollecito all'email di sede delle sedi mancanti e un riepilogo agli amministratori dell'azienda. Solleciti manuali per singola sede o per tutte le mancanti, comunicazioni libere a sede, struttura ospitante e operatori, con registro di tutti gli invii (esito, destinatari, allegato). Le segnalazioni aperte e le note notificano la sede; la conferma mensile delle royalty invia in automatico il report PDF all'email della struttura ospitante. Se l'invio non è configurato, tutto resta comunque registrato nel registro invii.
@@ -126,6 +132,7 @@ Tutte sotto /api, autenticazione via cookie di sessione, header `X-Requested-Wit
 - canoni (royalty di sede): summary, sites/:id, sites/:id/pdf, sites/:id/confirm, sites/:id/unconfirm
 - deposits: safe, elenco (filtro status), creazione, pdf, pickup, bank (conto corrente e riferimento), undo, delete (solo amministratori)
 - comms: daily, daily/alert, daily/run, message, log, test
+- controllo-mensile: sezionali (GET/PUT/DELETE), run (upload PDF), elenco, :id, :id/pdf, :id/xlsx
 
 ## Cose da decidere prima del go-live
 

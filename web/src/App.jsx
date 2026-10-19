@@ -19,6 +19,7 @@ import Safe from './pages/Safe.jsx';
 import DepositsList from './pages/DepositsList.jsx';
 import Credits from './pages/Credits.jsx';
 import Review from './pages/Review.jsx';
+import MonthlyCheck from './pages/MonthlyCheck.jsx';
 import DailyCheck from './pages/DailyCheck.jsx';
 import Companies from './pages/Companies.jsx';
 import Sites from './pages/Sites.jsx';
@@ -74,6 +75,7 @@ function Shell() {
           <L to="/statistiche" icon="chart">Statistiche</L>
           {admin && <L to="/canoni" icon="percent">Royalty di sede</L>}
           {admin && <L to="/riconciliazione" icon="link">Riconciliazione</L>}</>}
+          {sup && <L to="/controllo-mensile" icon="check">Controllo mensile casse</L>}
           {sup && <L to="/royalty" icon="link">Partner: royalty e SEPA</L>}
           {admin && !partner && <>
             <div className="group">Anagrafiche</div>
@@ -116,6 +118,7 @@ function Shell() {
           <Route path="/statistiche" element={<Stats />} />
           {admin && <Route path="/canoni" element={<SiteRoyalty />} />}
           {admin && <Route path="/riconciliazione" element={<Reconcile />} />}
+          {sup && <Route path="/controllo-mensile" element={<MonthlyCheck />} />}
           {sup && <Route path="/royalty" element={<Royalty />} />}
           {admin && <Route path="/aziende" element={<Companies />} />}
           {admin && <Route path="/sedi" element={<Sites />} />}

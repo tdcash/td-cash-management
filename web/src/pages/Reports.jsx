@@ -50,7 +50,7 @@ export default function Reports() {
               return (
                 <tr key={r.id} className="click" onClick={() => nav(`/rendiconti/${r.id}`)}>
                   <td><span className="muted small">{weekday(r.report_date)}</span> {itDate(r.report_date)}</td>
-                  <td className="strong">{r.site_name}</td>
+                  <td className="strong">{r.site_name}<div className="small muted">{r.operator_name}</div></td>
                   {user.role === 'SUPERADMIN' && <td className="muted">{r.company_name}</td>}
                   <td><StatusBadge status={r.status} /></td>
                   <td className="mono small">{r.envelope_code || '–'}</td>

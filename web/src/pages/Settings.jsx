@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { useApi, Card, Field, Loading, ErrorBox, useToast, Badge } from '../components/ui.jsx';
+import { Sezionali } from '../components/sezionali.jsx';
 
 export default function Settings() {
   const toast = useToast();
@@ -51,6 +52,7 @@ export default function Settings() {
           {testRes && <div className={`alert ${testRes.status === 'INVIATA' ? 'ok' : 'warn'}`} style={{ marginTop: 10 }}>{testRes.status === 'INVIATA' ? 'Email inviata.' : testRes.status === 'NON_CONFIGURATA' ? 'Invio non configurato: registrata nel registro invii.' : `Invio fallito: ${testRes.error}`}</div>}
           <p className="small muted" style={{ marginTop: 10 }}>Con Office 365 il mittente è la casella indicata in GRAPH_SENDER (amministrazione@toscanadiagnostica.it) tramite la stessa registrazione app del login, con permesso applicativo Mail.Send.</p>
         </Card>
+        <div id="sezionali"><Sezionali /></div>
         <Card title="Accesso Microsoft 365">
           <p className="small">L'accesso con account aziendale si attiva registrando l'app in Microsoft Entra ID e impostando sul server le variabili ENTRA_TENANT_ID, ENTRA_CLIENT_ID ed ENTRA_CLIENT_SECRET (redirect URI: <span className="mono">https://cash.toscanadiagnostica.it/api/auth/entra/callback</span>). Gli utenti vanno comunque censiti qui con la stessa email dell'account Office 365.</p>
         </Card>

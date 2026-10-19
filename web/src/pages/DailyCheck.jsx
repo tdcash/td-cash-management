@@ -42,8 +42,8 @@ export default function DailyCheck() {
       {!d ? <Loading /> : <>
         {!d.mail.configured && <div className="alert warn" style={{ marginBottom: 14 }}>Invio email non configurato: i solleciti vengono registrati ma non partono. Configura Office 365 nelle Impostazioni.</div>}
         <div className="grid g4">
-          <Kpi accent label={`${weekday(d.date)} ${itDate(d.date)}`} value={`${d.summary.done} / ${d.summary.operating}`} foot="rendiconti inseriti su sedi operative" />
-          <Kpi label="Sedi mancanti" value={d.summary.missing} foot={d.summary.missing ? 'da sollecitare' : 'tutto regolare'} />
+          <Kpi accent label={`${weekday(d.date)} ${itDate(d.date)}`} value={`${d.summary.done_registers} / ${d.summary.expected_registers}`} foot={`chiusure di cassa inserite su attese · ${d.summary.done} sedi complete su ${d.summary.operating}`} />
+          <Kpi label="Sedi incomplete" value={d.summary.missing} foot={d.summary.missing ? `${d.summary.missing_registers} casse mancanti da sollecitare` : 'tutto regolare'} />
           <Kpi label="Ancora in bozza" value={d.summary.drafts} foot="inseriti ma non chiusi" />
           <div className="card kpi" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
             <button className="btn" disabled={!d.summary.missing} onClick={() => alert(undefined)}>Sollecita tutte le mancanti ({d.summary.missing})</button>
@@ -51,18 +51,18 @@ export default function DailyCheck() {
         </div>
         <div style={{ marginTop: 16 }}><Card flush>
           <div className="table-wrap"><table className="t">
-            <thead><tr><th>Sede</th>{user.role === 'SUPERADMIN' && <th>Azienda</th>}<th>Email sede</th><th>Rendiconto</th><th className="num">Totale</th><th>Inserito da</th><th>Sollecito</th><th /></tr></thead>
+            <thead><tr><th>Sede</th>{user.role === 'SUPERADMIN' && <th>Azienda</th>}<th>Email sede</th><th>Casse</th><th className="num">Totale</th><th>Chiusure</th><th>Sollecito</th><th /></tr></thead>
             <tbody>{d.rows.map((r) => (
-              <tr key={r.site_id} style={{ background: r.operating && !r.report_id ? 'var(--red-100)' : undefined }}>
+              <tr key={r.site_id} style={{ background: r.operating && r.missing_registers > 0 ? 'var(--red-100)' : undefined }}>
                 <td><b>{r.site_name}</b><div className="small muted">{r.site_code}</div></td>
                 {user.role === 'SUPERADMIN' && <td>{r.company_name}</td>}
                 <td className="small">{r.site_email || <span className="red">mancante</span>}{r.closing_time && <div className="muted">chiude alle {r.closing_time}</div>}</td>
-                <td>{r.report_id ? <Link to={`/rendiconti/${r.report_id}`}><StatusBadge status={r.status} /></Link> : r.operating ? <Badge tone="red">Non inserito</Badge> : <Badge>Sede chiusa</Badge>}</td>
-                <td className="num">{r.report_id && r.status !== 'DRAFT' ? eur(Number(r.cash_to_deposit) + Number(r.pos_total) + Number(r.transfer_total)) : '–'}</td>
-                <td className="small muted">{r.created_by_name || ''}{r.updated_at && <div>{itDateTime(r.updated_at)}</div>}</td>
+                <td>{!r.operating ? <Badge>Sede chiusa</Badge> : r.missing_registers > 0 ? <Badge tone="red">{r.reports_count} su {r.expected_registers}</Badge> : <Badge tone="green">{r.reports_count} su {r.expected_registers}</Badge>}</td>
+                <td className="num">{r.closed_count > 0 ? eur(r.day_total) : '–'}</td>
+                <td className="small">{r.registers.map((g) => <div key={g.id}><Link to={`/rendiconti/${g.id}`}>{g.operator_name || 'operatore'}</Link> <StatusBadge status={g.status} /></div>)}{r.operating && r.missing_registers > 0 && <div className="red">{r.missing_registers} {r.missing_registers === 1 ? 'cassa mancante' : 'casse mancanti'}</div>}</td>
                 <td className="small">{r.alert_status ? <><Badge tone={r.alert_status === 'INVIATA' ? 'green' : 'mauve'}>{r.alert_status === 'INVIATA' ? 'Inviato' : r.alert_status === 'NON_CONFIGURATA' ? 'Registrato' : 'Fallito'}</Badge><div className="muted">{itDateTime(r.alert_at)}</div></> : '–'}</td>
                 <td className="num" style={{ whiteSpace: 'nowrap' }}>
-                  {r.operating && !r.report_id && <button className="btn sm ghost" onClick={() => alert(r.site_id)}>Sollecita</button>}
+                  {r.operating && r.missing_registers > 0 && <button className="btn sm ghost" onClick={() => alert(r.site_id)}>Sollecita</button>}
                   {' '}<button className="btn sm ghost" onClick={() => setMsg({ site_id: r.site_id, site_name: r.site_name })}>Scrivi</button>
                 </td>
               </tr>))}</tbody>
