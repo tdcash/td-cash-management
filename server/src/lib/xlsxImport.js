@@ -10,7 +10,7 @@ export const SITE_COLUMNS = [
   ['fondo_cassa', 'Fondo cassa in euro (es. 150,00)', true],
   ['data_avvio', 'Data di avvio: primo giorno atteso (GG/MM/AAAA)', true],
   ['giorni_operativi', 'Giorni operativi lun..dom, 7 cifre 1/0 (es. 1111110)', false],
-  ['orario_apertura', 'Orario di apertura HH:MM, uguale per tutti i giorni operativi (per orari diversi per giorno usare la scheda sede)', false],
+  ['orario_apertura', 'Orario di apertura HH:MM, uguale per tutti i giorni operativi (per orari diversi per giorno usare la scheda sede). Vuoto o "(varia)": gli orari salvati restano invariati', false],
   ['orario_chiusura', 'Orario di chiusura HH:MM: il sollecito parte 60 minuti dopo', false],
   ['terminali_pos', 'TID dei terminali POS separati da virgola', false],
   ['tipo', 'PROPRIA oppure OSPITATA', true],
@@ -22,6 +22,8 @@ export const SITE_COLUMNS = [
   ['base_percentuale', 'TOTALE, CONTANTI_POS oppure CONTANTI', false],
   ['iva', 'IVA % sulla royalty (es. 22)', false],
   ['note_contratto', 'Note contrattuali', false],
+  ['casse_attese', 'Numero di casse attese al giorno (una per operatore)', false],
+  ['attiva', 'SI oppure NO', false],
 ];
 export const USER_COLUMNS = [
   ['email', 'Email (per Microsoft 365 la stessa dell\'account)', true],
@@ -31,9 +33,10 @@ export const USER_COLUMNS = [
   ['accesso', 'MICROSOFT, PASSWORD oppure ENTRAMBI', true],
   ['sedi', 'Codici sede separati da virgola (obbligatorio per OPERATOR, CASSIERE, PARTNER)', false],
   ['attivo', 'SI oppure NO', false],
+  ['fondo_cassa_operatore', 'Fondo cassa dell\'operatore in euro (vuoto = fondo della sede; solo OPERATOR)', false],
 ];
 
-export async function buildTemplate(kind, sample) {
+export async function buildTemplate(kind, sample, opts = {}) {
   const cols = kind === 'sites' ? SITE_COLUMNS : USER_COLUMNS;
   const wb = new ExcelJS.Workbook();
   wb.creator = 'Toscana Diagnostica Cash Management';
@@ -44,9 +47,10 @@ export async function buildTemplate(kind, sample) {
   ws.views = [{ state: 'frozen', ySplit: 1 }];
   for (const row of sample) ws.addRow(row);
   // validazioni a tendina
-  const dv = (col, list) => { for (let i = 2; i <= 500; i++) ws.getCell(`${col}${i}`).dataValidation = { type: 'list', allowBlank: true, formulae: [`"${list.join(',')}"`] }; };
+  const last = sample.length + 200;
+  const dv = (col, list) => { ws.dataValidations.add(`${col}2:${col}${last}`, { type: 'list', allowBlank: true, formulae: [`"${list.join(',')}"`] }); };
   const colLetter = (key) => ws.getColumn(key).letter;
-  if (kind === 'sites') { dv(colLetter('tipo'), ['PROPRIA', 'OSPITATA']); dv(colLetter('base_percentuale'), ['TOTALE', 'CONTANTI_POS', 'CONTANTI']); for (let i = 2; i <= 500; i++) ws.getCell(`${colLetter('data_avvio')}${i}`).numFmt = 'dd/mm/yyyy'; }
+  if (kind === 'sites') { dv(colLetter('tipo'), ['PROPRIA', 'OSPITATA']); dv(colLetter('base_percentuale'), ['TOTALE', 'CONTANTI_POS', 'CONTANTI']); dv(colLetter('attiva'), ['SI', 'NO']); ws.getColumn('data_avvio').numFmt = 'dd/mm/yyyy'; }
   else { dv(colLetter('ruolo'), ['ADMIN', 'CASSIERE', 'FINANCE', 'OPERATOR', 'PARTNER']); dv(colLetter('accesso'), ['MICROSOFT', 'PASSWORD', 'ENTRAMBI']); dv(colLetter('attivo'), ['SI', 'NO']); }
   const info = wb.addWorksheet('Istruzioni');
   info.columns = [{ header: 'Colonna', key: 'c', width: 24 }, { header: 'Contenuto', key: 'd', width: 80 }, { header: 'Obbligatoria', key: 'o', width: 14 }];

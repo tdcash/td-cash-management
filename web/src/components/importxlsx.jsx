@@ -7,7 +7,8 @@ export function ImportButtons({ kind, onDone }) {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <a className="btn ghost" href={`/api/anagrafica/template/${kind}.xlsx`}><Icon name="download" size={16} />Modello Excel</a>
+      <a className="btn ghost" href={`/api/anagrafica/export/${kind}.xlsx`} title="Scarica l'anagrafica attuale in Excel, nello stesso formato del modello: si corregge e si ricarica"><Icon name="download" size={16} />Estrai XLSX</a>
+      <a className="btn ghost" href={`/api/anagrafica/template/${kind}.xlsx`}>Modello vuoto</a>
       <button className="btn ghost" onClick={() => setOpen(true)}><Icon name="upload" size={16} />Importa da Excel</button>
       {open && <ImportModal kind={kind} onClose={() => setOpen(false)} onDone={() => { setOpen(false); onDone?.(); }} />}
     </>
